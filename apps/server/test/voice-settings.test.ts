@@ -75,6 +75,38 @@ describe("persistent realtime voice settings", () => {
     expect(saved.providers.volcengine.configured).toBe(false);
   });
 
+  test("does not block startup when a saved provider key uses another auth secret", async () => {
+    const database = store({
+      id: "global",
+      enabled: true,
+      provider: "volcengine",
+      encryptedVolcengineApiKey: "not-a-valid-ciphertext",
+      volcengineBaseUrl: input.volcengineBaseUrl,
+      volcengineSttUrl: null,
+      volcengineTtsUrl: null,
+      volcengineSttResourceId: input.volcengineSttResourceId,
+      volcengineTtsResourceId: input.volcengineTtsResourceId,
+      encryptedDeepgramApiKey: null,
+      deepgramBaseUrl: input.deepgramBaseUrl,
+      sttModel: input.sttModel,
+      ttsModel: input.ttsModel,
+      voice: input.voice,
+      language: input.language,
+    });
+    const warnings: unknown[][] = [];
+    const originalWarn = console.warn;
+    console.warn = (...args) => warnings.push(args);
+    try {
+      const service = new VoiceSettingsService(database as never, () => "z".repeat(32));
+      const loaded = await service.load();
+      expect(loaded.volcengineApiKey).toBe("");
+      expect((await service.view()).providers.volcengine.configured).toBe(false);
+    } finally {
+      console.warn = originalWarn;
+    }
+    expect(warnings).toHaveLength(1);
+  });
+
   test("blank speech fields resolve to the selected provider's defaults", async () => {
     const service = new VoiceSettingsService(store() as never, () => "d".repeat(32));
     const blank = { ...input, enabled: false, sttModel: "", ttsModel: "", voice: "", language: "" };

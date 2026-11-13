@@ -180,19 +180,32 @@ export class VoiceSettingsService {
     }
   }
 
+  private decryptSavedKey(value: string, provider: VoiceProviderId): string {
+    try {
+      return this.decrypt(value);
+    } catch {
+      console.warn(`Saved ${provider} voice provider key could not be decrypted; save it again in Voice settings.`);
+      return "";
+    }
+  }
+
   private async read(): Promise<VoiceRuntimeSettings> {
     const row = await this.prisma.voiceSettings.findUnique({ where: { id: ID } });
     if (!row) return defaults();
     return {
       enabled: row.enabled,
       defaultProvider: row.provider as VoiceProviderId,
-      volcengineApiKey: row.encryptedVolcengineApiKey ? this.decrypt(row.encryptedVolcengineApiKey) : "",
+      volcengineApiKey: row.encryptedVolcengineApiKey
+        ? this.decryptSavedKey(row.encryptedVolcengineApiKey, "volcengine")
+        : "",
       volcengineBaseUrl: row.volcengineBaseUrl,
       volcengineSttUrl: row.volcengineSttUrl ?? "",
       volcengineTtsUrl: row.volcengineTtsUrl ?? "",
       volcengineSttResourceId: row.volcengineSttResourceId,
       volcengineTtsResourceId: row.volcengineTtsResourceId,
-      deepgramApiKey: row.encryptedDeepgramApiKey ? this.decrypt(row.encryptedDeepgramApiKey) : "",
+      deepgramApiKey: row.encryptedDeepgramApiKey
+        ? this.decryptSavedKey(row.encryptedDeepgramApiKey, "deepgram")
+        : "",
       deepgramBaseUrl: row.deepgramBaseUrl,
       sttModel: row.sttModel,
       ttsModel: row.ttsModel,
