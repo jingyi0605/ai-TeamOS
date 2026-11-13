@@ -868,7 +868,6 @@ const BotThinkingSlot = memo(function BotThinkingSlot({
   group = false,
   groupActivity,
   groupStart = false,
-  persistent = false,
 }: {
   bot?: BotView;
   phase: ThinkingPhase;
@@ -876,7 +875,6 @@ const BotThinkingSlot = memo(function BotThinkingSlot({
   group?: boolean;
   groupActivity?: GroupActivity;
   groupStart?: boolean;
-  persistent?: boolean;
 }) {
   const { t } = useI18n();
   const name = bot?.name ?? t("Bot");
@@ -899,7 +897,6 @@ const BotThinkingSlot = memo(function BotThinkingSlot({
             group && "group-activity-content"
           )}
           data-bot-thinking=""
-          data-persistent={persistent || undefined}
           data-exiting={phase === "exiting" || undefined}
           role="status"
         >
@@ -1768,7 +1765,6 @@ export const ChatPane = memo(function ChatPane({
                             bot={entry.bot}
                             phase={entry.phase}
                             activity={lastThinkingText.current.text}
-                            persistent={hasBackgroundTask && !activeRun}
                             group={channel.kind === "group"}
                             groupStart={
                               channel.kind === "group" &&
