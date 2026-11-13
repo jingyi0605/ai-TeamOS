@@ -42,10 +42,14 @@ const assertFreshOrCurrentDatabase = async (): Promise<"initialize" | "ready"> =
     `);
     const schemaComment = schemaResult.rows[0]?.comment ?? null;
 
-    if (schemaComment === INITIALIZING_MARKER) return "initialize";
+    if (
+      !existing.rows[0]?.has_objects &&
+      (schemaComment === null || schemaComment === "standard public schema")
+    ) {
+      return "initialize";
+    }
     if (schemaComment === READY_MARKER && existing.rows[0]?.has_objects) return "ready";
-    const hasOutcomeGoMarker = schemaComment?.startsWith("OutcomeGo schema ") ?? false;
-    if (!existing.rows[0]?.has_objects && !hasOutcomeGoMarker) return "initialize";
+    if (schemaComment === INITIALIZING_MARKER) return "initialize";
     if (existing.rows[0]?.has_objects) {
       throw new Error(
         "Database does not match the current OutcomeGo schema. In-place database upgrades are not supported; create a fresh database and import a validated outcomego-v1 backup."
