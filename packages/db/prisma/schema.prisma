@@ -188,6 +188,14 @@ enum IdempotencyStatus {
   @@map("outcomego_idempotency_status")
 }
 
+enum BitwardenReadApprovalStatus {
+  pending
+  approved
+  denied
+  expired
+  @@map("outcomego_bitwarden_read_approval_status")
+}
+
 enum MemoryScope {
   agent
   user
@@ -329,6 +337,7 @@ model Bot {
   voiceSessions VoiceSession[]
   contextSessions ContextSession[]
   processSecrets ProcessSecret[]
+  bitwardenReadApprovals BitwardenReadApproval[]
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
@@ -592,6 +601,7 @@ model Channel {
   messages    ChannelMessage[]
   rounds      ChannelRound[]
   runs        Run[]
+  bitwardenReadApprovals BitwardenReadApproval[]
   routines    Routine[]
   readState   ChannelReadState?
   notifications ChannelNotification[]
@@ -868,6 +878,7 @@ model Run {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
   voiceTurn      VoiceTurn?   @relation("VoiceTurnRun")
+  bitwardenReadApprovals BitwardenReadApproval[]
 
   @@index([botId, status], map: "outcomego_run_bot_id_status_idx")
   @@index([conversationId, createdAt], map: "outcomego_run_conversation_id_created_at_idx")
@@ -1241,9 +1252,36 @@ model ProcessSecret {
   botId String? @db.Uuid
   bot Bot? @relation(fields: [botId], references: [id], onDelete: Cascade)
   value String
+  protected Boolean @default(false)
   updatedAt DateTime @updatedAt
   @@id([ownerKey, name], map: "outcomego_process_secret_owner_key_name_pkey")
   @@map("outcomego_process_secret")
+}
+
+model BitwardenReadApproval {
+  id String @id @default(uuid()) @db.Uuid
+  botId String @db.Uuid
+  bot Bot @relation(fields: [botId], references: [id], onDelete: Cascade)
+  channelId String @db.Uuid
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  sourceRunId String @db.Uuid
+  sourceRun Run @relation(fields: [sourceRunId], references: [id], onDelete: Cascade)
+  widgetMessageId String? @unique @db.Uuid
+  itemId String?
+  title String
+  hostname String
+  status BitwardenReadApprovalStatus @default(pending)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  approvedAt DateTime?
+  consumedAt DateTime?
+  leaseTokenHash String?
+  leaseExpiresAt DateTime?
+
+  @@index([botId, channelId, status, createdAt], map: "outcomego_bitwarden_read_approval_lookup_idx")
+  @@index([sourceRunId, status], map: "outcomego_bitwarden_read_approval_source_run_idx")
+  @@index([leaseTokenHash], map: "outcomego_bitwarden_read_approval_lease_idx")
+  @@map("outcomego_bitwarden_read_approval")
 }
 
 model User {

@@ -45,16 +45,16 @@ export const pluginSecretOwner = (pluginKey: string) => `plugin:${pluginKey}`;
 export async function storePluginEnvironment(
   db: Database,
   pluginKey: string,
-  values: Array<[name: string, value: string]>
+  values: Array<[name: string, value: string, protectedField?: boolean]>
 ) {
-  for (const [name, value] of values) {
+  for (const [name, value, protectedField = false] of values) {
     validateProcessSecretName(name);
     if (!value || value.length > 20_000)
       throw new ApiError(400, "secret_invalid", "A secret must contain 1–20000 characters");
     await db.processSecret.upsert({
       where: { ownerKey_name: { ownerKey: pluginSecretOwner(pluginKey), name } },
-      create: { ownerKey: pluginSecretOwner(pluginKey), name, value, botId: null },
-      update: { value },
+      create: { ownerKey: pluginSecretOwner(pluginKey), name, value, protected: protectedField, botId: null },
+      update: { value, protected: protectedField },
     });
   }
 }
@@ -87,6 +87,14 @@ export async function processEnvironment(
       ],
     },
   });
+  const protectedNames = new Set([
+    "BW_SERVER_URL",
+    "BW_EMAIL",
+    "BW_CLIENT_ID",
+    "BW_CLIENT_SECRET",
+    "BW_MASTER_PASSWORD",
+    ...secrets.filter((secret) => secret.protected).map((secret) => secret.name),
+  ]);
   // Later sources override earlier ones: personal, then plugin setup, then this Bot.
   const precedence = (ownerKey: string) =>
     ownerKey === "personal" ? 0 : ownerKey.startsWith("plugin:") ? 1 : 2;
@@ -96,6 +104,19 @@ export async function processEnvironment(
         (a, b) =>
           precedence(a.ownerKey) - precedence(b.ownerKey) || a.ownerKey.localeCompare(b.ownerKey)
       )
+      .filter((secret) => !protectedNames.has(secret.name))
       .map((secret) => [validateProcessSecretName(secret.name), secret.value])
   );
+}
+
+/** Protected Bitwarden values are returned only to the host-controlled reader. */
+export async function protectedPluginEnvironment(
+  db: Database,
+  pluginKey = "bitwarden"
+): Promise<Record<string, string>> {
+  const secrets = await db.processSecret.findMany({
+    where: { ownerKey: pluginSecretOwner(pluginKey), protected: true },
+    select: { name: true, value: true },
+  });
+  return Object.fromEntries(secrets.map((secret) => [validateProcessSecretName(secret.name), secret.value]));
 }

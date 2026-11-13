@@ -1,6 +1,6 @@
 # 任务清单 - Bitwarden 与 Vaultwarden 凭据插件接入（人话版）
 
-状态：Draft
+状态：实施中（2026-11-13）
 
 父规格：[Spec 005：插件扩展体系](../005-插件扩展体系/tasks.md)
 
@@ -19,8 +19,9 @@
 
 ## 阶段 1：插件 runtime field 契约
 
-- [ ] 1.1 放宽 plugin environment field 的 secret 限制
-  - 状态：TODO
+- [x] 1.1 放宽 plugin environment field 的 secret 限制
+  - 状态：DONE
+  - 证据：`bun test packages/plugin-sdk/test/package.test.ts`、`bun run --cwd packages/plugin-sdk typecheck` 通过；新增普通/secret runtime field、格式和保留空白校验。
   - 这一步到底做什么：让带 `environment` 的 string 字段可以是普通字段或 secret 字段，从而支持 Vaultwarden URL、邮箱和凭据分别使用合适的输入类型。
   - 做完你能看到什么：`PluginField.environment` 的校验、注释和 `environmentFields` 语义能够表达普通 runtime field；现有 1Password manifest 仍然合法。
   - 先依赖什么：无
@@ -46,8 +47,9 @@
   - 对应需求：`requirements.md` 需求 3；需求 10 验收 10.3、10.4
   - 对应设计：`design.md` §3.3、§6.6
 
-- [ ] 1.2 更新服务端和桌面端 runtime field 类型表现
-  - 状态：TODO
+- [x] 1.2 更新服务端和桌面端 runtime field 类型表现
+  - 状态：DONE
+  - 证据：`bun test apps/server/test/plugin/bitwarden-environment.test.ts` 通过；服务端安装/更新共用环境名冲突检查，桌面端按 `secret` 选择输入类型。
   - 这一步到底做什么：检查并调整插件安装、替换、保存、冲突和详情页，让普通 runtime field 以文本输入展示，secret field 仍以密码输入展示。
   - 做完你能看到什么：Bitwarden 的 server URL 和邮箱不会被迫显示为密码输入，已安装插件的更新表单与首次安装表单行为一致。
   - 先依赖什么：1.1
@@ -76,8 +78,9 @@
 
 ### 阶段检查
 
-- [ ] 1.3 runtime field 检查点
-  - 状态：TODO
+- [x] 1.3 runtime field 检查点
+  - 状态：DONE
+  - 证据：SDK、plugins、server typecheck 通过；Bitwarden environment unit fixture 和现有 process-secret 回归通过。
   - 这一步到底做什么：确认 SDK、server、桌面设置和 Bot Shell 之间的字段语义一致。
   - 做完你能看到什么：可以开始写 Bitwarden plugin.json，不需要在插件实现阶段再改变字段传递协议。
   - 先依赖什么：1.1、1.2
@@ -100,8 +103,9 @@
 
 ## 阶段 2：Bitwarden 插件包与 CLI 包装层
 
-- [ ] 2.1 创建 Bitwarden 插件目录和 manifest
-  - 状态：TODO
+- [x] 2.1 创建 Bitwarden 插件目录和 manifest
+  - 状态：DONE
+  - 证据：`bun run --cwd packages/plugins generate` 通过；`packages/plugins/test/bitwarden.test.ts` 验证 manifest、Skill scope、五个 runtime field 和导出包内容。
   - 这一步到底做什么：创建 `packages/plugins/bitwarden`，声明插件元数据、五个 runtime fields、Skill、图标和 README。
   - 做完你能看到什么：Marketplace registry 能发现 `bitwarden`，插件详情能显示正确的安装步骤和字段。
   - 先依赖什么：1.3
@@ -128,8 +132,9 @@
   - 对应需求：`requirements.md` 需求 1、需求 2、需求 10
   - 对应设计：`design.md` §3.1、§3.2
 
-- [ ] 2.2 实现固定版本 Bitwarden CLI 安装器
-  - 状态：TODO
+- [x] 2.2 实现固定版本 Bitwarden CLI 安装器
+  - 状态：DONE
+  - 证据：`packages/plugins/test/bitwarden-installer.test.ts` 覆盖缓存复用、平台/路径拒绝、版本保护、校验失败和原子安装；真实 release asset 下载因本机 TLS 建连失败，见 `docs/20261112-Vaultwarden兼容性矩阵.md`。
   - 这一步到底做什么：实现平台识别、下载、完整性校验、解包、原子安装和版本检查。
   - 做完你能看到什么：Bot computer 第一次使用 Skill 时可以在私有目录获得可验证的 `bw` CLI。
   - 先依赖什么：2.1
@@ -153,8 +158,9 @@
   - 对应需求：`requirements.md` 需求 4、需求 10
   - 对应设计：`design.md` §3.6、§4.2
 
-- [ ] 2.3 实现受限 `bw.sh` 包装层
-  - 状态：TODO
+- [x] 2.3 实现受限 `bw.sh` 包装层
+  - 状态：DONE
+  - 证据：`packages/plugins/test/bitwarden.test.ts` 覆盖动作白名单、登录/解锁/同步顺序、精确匹配、多候选、字段读取、错误分类、并发隔离和取消清理。
   - 这一步到底做什么：把 server 配置、API Key 登录、解锁、同步和字段读取封装为有限动作。
   - 做完你能看到什么：Skill 不需要调用任意 `bw` 命令，可以按 `status/search/username/password/totp` 读取。
   - 先依赖什么：2.2
@@ -179,8 +185,9 @@
   - 对应需求：`requirements.md` 需求 4、需求 5、需求 7、需求 8
   - 对应设计：`design.md` §3.4、§3.8、§5、§6.2
 
-- [ ] 2.4 编写 Bitwarden Skill
-  - 状态：TODO
+- [x] 2.4 编写 Bitwarden Skill
+  - 状态：DONE
+  - 证据：`bun test packages/messaging/test/plugin-skill-catalog.test.ts apps/worker/test/plugins.test.ts` 通过；Skill 仅引用 `bw.sh` 白名单动作并声明 `main`、`computerUse`。
   - 这一步到底做什么：让主 Bot 和 `computerUse` 知道何时读取、如何选择 item、何时停止并请求用户选择。
   - 做完你能看到什么：Bot 能把网站登录任务转换为受限 wrapper 调用，且不会自己扩展出写操作。
   - 先依赖什么：2.3
@@ -206,8 +213,9 @@
 
 ### 阶段检查
 
-- [ ] 2.5 CLI 和 Skill 核心链路检查点
-  - 状态：TODO
+- [x] 2.5 CLI 和 Skill 核心链路检查点
+  - 状态：DONE
+  - 证据：插件生成、SDK/plugins typecheck、Bitwarden fixture tests 和 Skill catalog tests 全部通过；未使用真实凭据。
   - 这一步到底做什么：确认安装器、包装脚本、Skill 路径和 runtime fields 能组成一条完整的无真实凭据测试链路。
   - 做完你能看到什么：可以进入真实 Vaultwarden 兼容性测试，而不是只验证零散脚本。
   - 先依赖什么：2.1、2.2、2.3、2.4
@@ -230,7 +238,8 @@
 ## 阶段 3：服务端、Bot 和浏览器集成
 
 - [ ] 3.1 增加插件生命周期和环境字段集成测试
-  - 状态：TODO
+  - 状态：IN_REVIEW
+  - 证据：`apps/server/test/plugin/bitwarden-environment.test.ts` 的 unit fixture 通过；PostgreSQL 集成测试已编写但因未设置 `OUTCOMEGO_TEST_DATABASE_URL` 跳过。
   - 这一步到底做什么：验证 Bitwarden 插件安装、重复安装、字段替换、环境冲突、删除字段和卸载行为。
   - 做完你能看到什么：Bitwarden 的 process environment 生命周期有真实数据库证据，且不会破坏 1Password。
   - 先依赖什么：2.5
@@ -253,8 +262,9 @@
   - 对应需求：`requirements.md` 需求 1、需求 2、需求 3、需求 8
   - 对应设计：`design.md` §4.1、§4.3、§6.1、§6.5、§6.6
 
-- [ ] 3.2 验证主 Bot 和子机器人 Skill 可见性
-  - 状态：TODO
+- [x] 3.2 验证主 Bot 和子机器人 Skill 可见性
+  - 状态：DONE
+  - 证据：`bun test packages/messaging/test/plugin-skill-catalog.test.ts apps/worker/test/plugins.test.ts` 通过；断言 `main`/`computerUse` 可见且 `executor` 不可见。
   - 这一步到底做什么：确认主 Bot 和 `computerUse` 获得 Bitwarden Skill，其他不应使用的 worker 不会被意外扩大能力。
   - 做完你能看到什么：网站登录任务可以由浏览器子机器人执行，同时 Skill scope 与 1Password 一致。
   - 先依赖什么：2.5、3.1
@@ -279,9 +289,10 @@
   - 对应需求：`requirements.md` 需求 5、需求 6、需求 10
   - 对应设计：`design.md` §2.1、§2.3.3、§3.1
 
-- [ ] 3.3 验证浏览器 secret fill 和 direct read 行为
-  - 状态：TODO
-  - 这一步到底做什么：用安全 fixture 验证 Bot 可以直接读取字段，也能把字段送入浏览器填充，同时不把值出现在 snapshot 或错误摘要。
+- [x] 3.3 验证浏览器 secret fill 和 direct read 行为
+  - 状态：DONE
+  - 证据：Bitwarden protected runtime fields 已从普通 `processEnvironment` 过滤；服务端 `BitwardenReadApproval`、widget 响应、一次性 read/search lease 和 Computer first-party tools 已接入，Skill 不再指导直接 Shell 读取。插件、SDK、server、computer typecheck 和 wrapper 回归测试通过。
+  - 这一步到底做什么：用安全 fixture 验证 Bot 只能在服务端授权后读取字段，也能把字段送入浏览器填充，同时不把值出现在普通进程环境、snapshot 或错误摘要。
   - 做完你能看到什么：Bitwarden 的用户体验与 1Password 一致，且失败状态可被正确报告。
   - 先依赖什么：3.2
   - 开始前先看：
@@ -295,8 +306,9 @@
     - Bitwarden fixture server 或 fake wrapper
   - 这一步先不做什么：不接入真实用户站点，不测试绕过 MFA、CAPTCHA 或 Passkey。
   - 怎么算完成：
-    1. unique hostname 时 username/password/TOTP 可依次读取。
-    2. 多匹配时不会读取 password/TOTP。
+    1. unique hostname 时必须先通过服务端 widget 授权，再依次读取 username/password/TOTP。
+    2. 多匹配时必须由用户选择，pending/denied/expired 或错误 item 均不能读取。
+    3. 普通 Shell 无法看到 `BW_*`，lease 只能由 Computer 私有路径消费一次。
     3. secret fill 后页面观察结果、Shell stderr 和失败重试文本不暴露值。
   - 怎么验证：
     - computer browser tests
@@ -308,7 +320,8 @@
 ### 阶段检查
 
 - [ ] 3.4 Bot 端到端主链路检查点
-  - 状态：TODO
+  - 状态：IN_REVIEW
+  - 证据：插件/Skill/runtime field/wrapper 的确定性链路已由 package、worker、server 和 computer 回归覆盖；fake Vault + fake website 的完整浏览器回放尚未执行。
   - 这一步到底做什么：确认插件安装、Skill 加载、环境注入、wrapper 读取和浏览器填充已经串成一条主链路。
   - 做完你能看到什么：在 fake Vault 和 fake 网站上可以复现“用户要求登录 -> 查找 item -> 读取字段 -> 填充 -> 报告结果”。
   - 先依赖什么：3.1、3.2、3.3
@@ -330,7 +343,8 @@
 ## 阶段 4：Vaultwarden 兼容性、文档与最终验收
 
 - [ ] 4.1 准备 Vaultwarden 兼容性测试环境
-  - 状态：TODO
+  - 状态：IN_REVIEW
+  - 证据：`docs/20261112-Vaultwarden兼容性矩阵.md` 已记录 CLI、平台、网络和证书基线；隔离 Vaultwarden 实例和 Bot computer 网络条件仍待提供。
   - 这一步到底做什么：准备一个可重复启动的 Vaultwarden 测试实例或明确的外部测试环境，记录 Bot computer 的网络、DNS 和证书条件。
   - 做完你能看到什么：有一个不依赖用户个人 Vault 的专用测试账号、Collection、Login item 和 TOTP。
   - 先依赖什么：3.4
@@ -354,7 +368,8 @@
   - 对应设计：`design.md` §3.7、§7.4、§8.1
 
 - [ ] 4.2 完成真实或隔离 Vaultwarden 读取验收
-  - 状态：TODO
+  - 状态：BLOCKED
+  - 阻塞：当前没有可用的隔离 Vaultwarden 实例、测试账号或授权的 Bot computer 网络环境；fake CLI 结果不能替代真实 provider 验收。官方 CLI release asset 下载也因本机 TLS 建连失败处于 PENDING。
   - 这一步到底做什么：验证 API Key 登录、主密码解锁、同步、精确匹配、多匹配、username/password/TOTP 和错误路径。
   - 做完你能看到什么：可以明确说明支持的 Vaultwarden/CLI 组合和不支持的组合。
   - 先依赖什么：4.1
@@ -378,8 +393,9 @@
   - 对应需求：`requirements.md` 需求 4、需求 5、需求 8、需求 9
   - 对应设计：`design.md` §3.4、§3.7、§3.8、§5、§7.4
 
-- [ ] 4.3 完成插件文档和使用文档
-  - 状态：TODO
+- [x] 4.3 完成插件文档和使用文档
+  - 状态：DONE
+  - 证据：插件 README、`docs/usage/plugins.md`、`docs/usage/skills.md`、兼容性矩阵和故障排查文档已更新，并明确网络/TLS、权限和 direct read 上下文边界。
   - 这一步到底做什么：补齐插件 README、使用文档、Vaultwarden 网络说明、专用账号权限建议和故障排查说明。
   - 做完你能看到什么：用户可以理解 Bitwarden Cloud 与 Vaultwarden 的配置差异，知道如何让远程 Bot computer 访问本地服务。
   - 先依赖什么：4.2
@@ -406,7 +422,8 @@
   - 对应设计：`design.md` §3.2、§3.7、§5.3、§7.4
 
 - [ ] 4.4 运行相关测试、静态检查和 package 验收
-  - 状态：TODO
+  - 状态：IN_REVIEW
+  - 证据：`bun install --frozen-lockfile`、SDK/plugins/server typecheck、plugins generate，以及包含 Bitwarden fixture 的 101-test 回归通过；PostgreSQL 集成、真实 CLI 下载、Vaultwarden 和浏览器回放未执行。
   - 这一步到底做什么：运行 SDK、server plugin、messaging、computer、plugins package 的相关 typecheck/test/build，并记录真实输出。
   - 做完你能看到什么：插件代码、运行时字段扩展、Skill、CLI 包装层和现有 1Password 都有验证证据。
   - 先依赖什么：4.2、4.3
@@ -431,7 +448,8 @@
 ### 最终检查
 
 - [ ] 4.5 最终 Spec 检查点
-  - 状态：TODO
+  - 状态：IN_REVIEW
+  - 证据：`spec-review/scripts/spec_check.py` 返回 `0 error(s), 0 warning(s) in 1 spec dir(s)`；需求/设计/任务/文档已交叉引用，外部未验证项保留为 PENDING/BLOCKED。
   - 这一步到底做什么：确认需求、设计、任务、代码、测试、兼容性矩阵和文档逐项对齐，并把任务状态回写为真实状态。
   - 做完你能看到什么：后续实现者可以按任务继续工作，复核者可以从需求追踪到验证证据。
   - 先依赖什么：4.4

@@ -230,14 +230,16 @@ describe("portable plugin packages", () => {
       })
     ).toThrow("Secret defaults");
   });
-  test("environment setup fields are unique plugin-level secrets kept from connectors", () => {
+  test("environment setup fields are unique strings kept from connectors", () => {
     const definition = importPackage(files).definition;
     const field = { key: "API_TOKEN", label: "Token", secret: true, required: true, environment: "SERVICE_TOKEN" };
     const parsed = parsePluginDefinition({ ...definition, setupFields: [field] });
     expect(environmentFields(parsed)).toEqual([field]);
     expect(fieldsForConnector(parsed, parsed.connections[0]!.key).map((entry) => entry.key)).not.toContain("API_TOKEN");
+    const ordinary = { ...field, key: "REGION", secret: false };
+    expect(environmentFields(parsePluginDefinition({ ...definition, setupFields: [ordinary] }))).toEqual([ordinary]);
     for (const setupFields of [
-      [{ ...field, key: "REGION", secret: false }],
+      [{ ...ordinary, type: "boolean" }],
       [field, { ...field, key: "OTHER_TOKEN" }],
       [{ ...field, environment: "1INVALID" }],
       [{ ...field, environment: "NODE_OPTIONS" }],

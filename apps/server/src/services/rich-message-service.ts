@@ -224,13 +224,23 @@ export class RichMessageService {
             return { accepted: false, message: messageView(message), runId: null };
           }
           const value = assertWidgetAnswer(widget, input.value);
+          const bitwardenApproval = await tx.bitwardenReadApproval.findUnique({ where: { widgetMessageId: message.id } });
+          if (bitwardenApproval) {
+            if (bitwardenApproval.expiresAt <= new Date() || bitwardenApproval.status !== "pending") {
+              await tx.bitwardenReadApproval.update({ where: { id: bitwardenApproval.id }, data: { status: "expired" } });
+              throw new ApiError(409, "widget_expired", "This Bitwarden approval has expired");
+            }
+            if (!bitwardenApproval.itemId && !widgetOptions(widget).some((option) => effectiveOptionValue(option) === value))
+              throw new ApiError(400, "widget_answer_invalid", "That Bitwarden item is not available on this approval");
+            await tx.bitwardenReadApproval.update({ where: { id: bitwardenApproval.id }, data: { status: "approved", itemId: value, approvedAt: new Date() } });
+          }
           const clientId = `widget:${message.id}:response`;
           const wake = await this.messaging.enqueueWake(tx, {
             botId: message.senderBotId,
             channelId: message.channelId,
             origin: "user",
             type: "widget.response",
-            content: value,
+            content: bitwardenApproval ? `[SAND_HIDDEN_PROMPT]BITWARDEN_APPROVAL:${bitwardenApproval.id} The user approved the selected Bitwarden item. Continue the task.` : value,
             clientId,
             priority: PRIORITY.user,
             wrapUserContent: false,
@@ -281,6 +291,9 @@ export class RichMessageService {
           if (typeof metadata.respondedValue === "string" || metadata.widgetDismissed === true) {
             return { accepted: false, message: messageView(message), runId: null };
           }
+          const bitwardenApproval = await tx.bitwardenReadApproval.findUnique({ where: { widgetMessageId: message.id } });
+          if (bitwardenApproval)
+            await tx.bitwardenReadApproval.update({ where: { id: bitwardenApproval.id }, data: { status: "denied" } });
           const updated = await tx.channelMessage.update({
             where: { id: message.id },
             data: {

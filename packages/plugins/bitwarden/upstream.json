@@ -1,0 +1,4 @@
+{
+  "origin": "openteam",
+  "description": "OpenTeam-authored Skills-only plugin using the official Bitwarden CLI release assets. The icon comes from the Bitwarden web vault and is used only to identify the provider."
+}

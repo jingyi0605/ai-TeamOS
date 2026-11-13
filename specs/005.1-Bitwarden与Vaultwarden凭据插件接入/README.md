@@ -2,7 +2,7 @@
 
 规格编号：`005.1`
 
-状态：草案
+状态：实施中
 
 日期：2026 年 11 月 12 日。
 
@@ -27,7 +27,7 @@
 2. `computerUse` 子机器人不会直接继承父 Bot 的 connector 工具，但可以接收同一插件 Skill 并使用 Bot computer 上的 Shell，因此 Skills 是保持浏览器登录能力一致的最短路径。
 3. Vaultwarden 没有与 1Password Service Account 完全等价的只读服务账户模型。第一版必须把只读边界放在插件命令接口、专用 Vaultwarden 用户和 Collection 权限上，并明确这不是主机级强制沙箱。
 
-为支持 Vaultwarden 的服务器地址和登录邮箱等运行参数，本 Spec 同时扩展插件字段能力：带 `environment` 的字段可以是普通配置字段，也可以是 secret 字段。普通配置字段以文本方式配置，但仍通过现有受保护的插件运行时环境传递给 Bot，不进入公开配置视图。
+为支持 Vaultwarden 的服务器地址和登录邮箱等运行参数，本 Spec 同时扩展插件字段能力：带 `environment` 的字段可以是普通配置字段，也可以是 secret 字段。Bitwarden 五个字段标记为 `protected`，普通 Shell 不会获得它们，只有服务端授权 lease 的 Computer 私有 wrapper 路径可以使用；字段仍不进入公开配置视图。
 
 ## 可实施边界
 
@@ -47,9 +47,11 @@
 ## 明确不做
 
 - 不实现 Vault 项目创建、更新、删除、移动、共享、组织成员管理或权限修改。
-- 不把主密码、API Key、会话密钥、密码或 TOTP 写入 OpenTeam 数据库之外的持久化文件。
+- 不主动创建凭据日志；CLI 必需的 token 和加密 Vault 使用短期私有目录并清理。direct read 会进入现有会话/终端历史，与 1Password 一致。
 - 不引入新的 Vault 数据库、缓存表或 OpenTeam 内部凭据模型。
 - 不承诺对 Vaultwarden 所有历史版本和所有未来 Bitwarden CLI 版本自动兼容。
 - 不绕过 TLS 证书校验，不支持通过关闭证书校验解决内网证书问题。
 - 不在第一版实现多个 Vaultwarden 账号或多个 server 的独立插件账户路由；一个已安装的 `bitwarden` Skills 插件对应一组运行配置。
 - 不把 Bitwarden CLI 的任意命令暴露为 Bot 的通用 Shell 能力。
+
+复核结论与实施基线见 [20261113-规格复核与覆盖矩阵](docs/20261113-规格复核与覆盖矩阵.md) 和 [设计 §8.2](design.md#82-已确定基线与外部验收)。

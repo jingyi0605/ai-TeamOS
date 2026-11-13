@@ -1180,7 +1180,7 @@ export function PluginDetail({
                       }))
                     }
                     placeholder={t("Enter a new value to replace it")}
-                    type="password"
+                    type={field.secret ? "password" : "text"}
                     value={environmentValues[field.key] ?? ""}
                   />
                 </label>

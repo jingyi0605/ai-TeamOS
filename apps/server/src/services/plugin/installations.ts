@@ -7,7 +7,7 @@ import {
   type ConfigValue,
   type PluginDefinition,
 } from "@outcomego/plugin-sdk";
-import type { PrismaClient } from "@outcomego/db";
+import type { Prisma, PrismaClient } from "@outcomego/db";
 import { appendEvent, serviceEffect, toJson } from "../service-utils";
 import { definitionFromManifest, hasPlaceholder, manifestJson } from "./values";
 import { resolveUpstreamPlugin } from "../../plugins/upstream-package";
@@ -17,7 +17,7 @@ import { clearPluginEnvironment, storePluginEnvironment } from "../process-secre
 const environmentValues = (
   plugin: PluginDefinition,
   values: Record<string, ConfigValue>
-): Array<[string, string]> => {
+): Array<[string, string, boolean]> => {
   const fields = environmentFields(plugin);
   let validated: Record<string, ConfigValue>;
   try {
@@ -26,7 +26,9 @@ const environmentValues = (
       Object.fromEntries(
         Object.entries(values)
           .filter(([key]) => fields.some((field) => field.key === key))
-          .map(([key, value]) => [key, typeof value === "string" ? value.trim() : value])
+          .map(([key, value]) => [key, typeof value === "string" &&
+            !fields.find((field) => field.key === key)?.preserveWhitespace &&
+            !fields.find((field) => field.key === key)?.format ? value.trim() : value])
       ),
       false
     );
@@ -35,10 +37,29 @@ const environmentValues = (
   }
   return fields.flatMap((field) =>
     typeof validated[field.key] === "string" && validated[field.key] !== ""
-      ? [[field.environment!, validated[field.key] as string]]
+      ? [[field.environment!, validated[field.key] as string, field.protected === true]]
       : []
   );
 };
+
+/** Installation and package updates must reserve the same runtime variable names. */
+export async function assertPluginEnvironmentAvailable(
+  db: PrismaClient | Prisma.TransactionClient,
+  plugin: PluginDefinition
+) {
+  const names = environmentFields(plugin).map((field) => field.environment!);
+  if (!names.length) return;
+  const others = await db.pluginInstallation.findMany({
+    where: { pluginKey: { not: plugin.key } },
+    select: { name: true, manifest: true },
+  });
+  const conflict = others.find((other) => {
+    const definition = definitionFromManifest(other.manifest);
+    return definition && environmentFields(definition).some((field) => names.includes(field.environment!));
+  });
+  if (conflict)
+    throw new ApiError(409, "plugin_environment_conflict", `${conflict.name} already provides one of this plugin's environment variables`);
+}
 
 export class PluginInstallations {
   constructor(
@@ -58,18 +79,7 @@ export class PluginInstallations {
       }
       const plugin = await resolveUpstreamPlugin(candidate);
       const environment = environmentValues(plugin, values);
-      const names = environmentFields(plugin).map((field) => field.environment!);
-      if (names.length) {
-        const others = await this.prisma.pluginInstallation.findMany({ select: { name: true, manifest: true } });
-        const conflict = others.find((other) => {
-          const definition = definitionFromManifest(other.manifest);
-          return definition
-            ? environmentFields(definition).some((field) => names.includes(field.environment!))
-            : false;
-        });
-        if (conflict)
-          throw new ApiError(409, "plugin_environment_conflict", `${conflict.name} already provides one of this plugin's environment variables`);
-      }
+      await assertPluginEnvironmentAvailable(this.prisma, plugin);
       const installation = await this.prisma.$transaction(async (tx) => {
         const created = await tx.pluginInstallation.create({
           data: {
@@ -311,7 +321,7 @@ export class PluginInstallations {
       };
     });
 
-  /** Replace plugin setup secrets delivered to Bot computer processes, e.g. a rotated token. */
+  /** Replace plugin runtime fields delivered to Bot computer processes, e.g. a rotated token. */
   updateEnvironment = (pluginKey: string, values: Record<string, ConfigValue>) =>
     serviceEffect(async () => {
       return this.prisma.$transaction(async (tx) => {
