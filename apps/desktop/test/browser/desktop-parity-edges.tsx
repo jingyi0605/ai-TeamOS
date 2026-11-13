@@ -287,6 +287,19 @@ async function chatScenario(theme: string, kind: "bot_dm" | "group") {
   drawChat();
   await pause(250);
   check(document.querySelector("[data-bot-thinking] svg"), "Thinking does not render our avatar");
+  {
+    const caption = document.querySelector<HTMLElement>("[data-bot-thinking] .bot-thinking-label");
+    const shimmer = caption?.querySelector<HTMLElement>(".bot-activity-shimmer");
+    check(caption, "Thinking caption is missing");
+    const captionOpacity = Number(getComputedStyle(caption!).opacity);
+    check(captionOpacity === 1, "Thinking caption is hidden until hover, opacity " + captionOpacity);
+    check(shimmer?.textContent, "Thinking caption carries no activity text");
+    if (!matchMedia("(prefers-reduced-motion: reduce)").matches)
+      check(
+        getComputedStyle(shimmer!).animationPlayState === "running",
+        "Thinking shimmer is paused until hover"
+      );
+  }
   check(!document.querySelector(".bot-thinking-badge"), "Legacy dot pill remains");
   if (kind === "group")
     check(

@@ -143,9 +143,9 @@ async function expectCaption(expected: string | null, scenario: string) {
         ? getComputedStyle(shimmer).animationName
         : getComputedStyle(shimmer).animationPlayState
       : undefined;
-    // A persistent caption is shown without hover, so its shimmer must run without hover too.
+    // The caption is always shown, so it must be readable and animating without hover.
     const readable =
-      expected !== "Working in the background" ||
+      expected === null ||
       (label &&
         Number(getComputedStyle(label).opacity) === 1 &&
         shimmerState === (reducedMotion ? "none" : "running"));
