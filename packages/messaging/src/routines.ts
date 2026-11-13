@@ -1041,140 +1041,154 @@ export class RoutineService {
     firedAt = new Date(),
     event?: AutomationEvent
   ): Promise<RoutineExecutionView> {
-    const result = await this.prisma.$transaction(async (tx) => {
-      const routine = await lockedOwnedRoutine(tx, owner, id);
-      if (event && (!routine.enabled || !matchesAutomationEvent(parseStoredTrigger(routine.trigger), event))) throw new ApiError(409, "routine_event_inactive", "Routine no longer accepts this event");
+    let result;
+    try {
+      result = await this.prisma.$transaction(async (tx) => {
+        const routine = await lockedOwnedRoutine(tx, owner, id);
+        if (event && (!routine.enabled || !matchesAutomationEvent(parseStoredTrigger(routine.trigger), event))) throw new ApiError(409, "routine_event_inactive", "Routine no longer accepts this event");
+        const eventKey = event ? createHash("sha256").update(`${event.source}:${event.id}`).digest("hex") : requestId;
+        const dedupeKey = `routine:${routine.id}:${event ? "event" : "manual"}:${eventKey}`;
+        const duplicate =
+          (await tx.routineExecution.findUnique({ where: { dedupeKey: dedupeKey } })) ??
+          (event
+            ? await tx.routineExecution.findFirst({
+                where: { routineId: routine.id, coalescedKeys: { has: dedupeKey } },
+              })
+            : null);
+        if (duplicate) return duplicate;
+        const active = await tx.routineExecution.count({
+          where: {
+            routineId: routine.id,
+            status: { in: ["queued", "running"] },
+          },
+        });
+        if (active > 0 && !event) {
+          throw new ApiError(409, "routine_already_running", "This routine is already running");
+        }
+        const routineOwner = routineOwnerFrom(routine);
+        if (active > 0 && event) return this.coalesceEvent(tx, routine, routineOwner, event, dedupeKey, firedAt);
+        const channel =
+          routineOwner.kind === "bot"
+            ? await tx.channel.findUnique({ where: { directKey: `bot:${routineOwner.id}` } })
+            : await tx.channel.findUnique({ where: { id: routineOwner.id } });
+        if (!channel || channel.archivedAt) {
+          throw new ApiError(
+            409,
+            "routine_channel_unavailable",
+            routineOwner.kind === "bot"
+              ? "The Bot chat is unavailable"
+              : "The group chat is unavailable"
+          );
+        }
+        if (routineOwner.kind === "group" && channel.kind !== "group") {
+          throw new ApiError(409, "routine_channel_unavailable", "The group chat is unavailable");
+        }
+        const revision = await tx.routineRevision.findUnique({
+          where: {
+            routineId_revision: { routineId: routine.id, revision: routine.revision },
+          },
+        });
+        if (!revision) {
+          throw new ApiError(
+            409,
+            "routine_revision_unavailable",
+            "This routine needs to be saved again before it can run"
+          );
+        }
+        const execution = await tx.routineExecution.create({
+          data: {
+            routineId: routine.id,
+            routineRevisionId: revision.id,
+            kind: event ? "scheduled" : "test",
+            status: "queued",
+            dedupeKey,
+            scheduledFor: firedAt,
+            enqueuedAt: firedAt,
+            ...(event ? { events: jsonInput([event]) } : {}),
+          },
+        });
+        let queued = execution;
+        let runId: string | null = null;
+        let roundId: string | null = null;
+        let completedImmediately = false;
+        if (routineOwner.kind === "bot") {
+          const wake = await this.host.enqueueWake(tx, {
+            botId: routineOwner.id,
+            channelId: channel.id,
+            origin: "routine",
+            type: event ? "routine.event" : "routine.manual",
+            ...(event
+              ? eventWake(routine, [event], firedAt)
+              : {
+                  content: routineWakeContent({
+                    kind: "manual",
+                    name: routine.name,
+                    folder: routine.slug,
+                    schedule: routine.scheduleText,
+                    trigger: routine.trigger ?? undefined,
+                    timeZone: routine.timezone,
+                    firedAt,
+                    prompt: routine.prompt,
+                    provenance: routine.provenance,
+                  }),
+                }),
+
+            clientId: dedupeKey,
+            priority: 290,
+            occurredAt: firedAt,
+            timeZone: routine.timezone,
+          });
+          runId = wake.run.id;
+          queued = await tx.routineExecution.update({
+            where: { id: execution.id },
+            data: { runId },
+          });
+        } else {
+          const seeded = await this.seedGroupRoutine(tx, { channelId: channel.id, routine, executionId: execution.id,
+            clientId: dedupeKey, firedAt, events: event ? [event] : undefined });
+          roundId = seeded.roundId;
+          queued = seeded.execution;
+        }
+        await tx.routine.update({
+          where: { id: routine.id },
+          data: {
+            lastRunAt: firedAt,
+            runLedger: appendRoutineRunLedger(routine.runLedger, {
+              id: execution.id,
+              trigger: event ? "event" : "manual",
+              startedAt: firedAt.getTime(),
+              finishedAt: completedImmediately ? firedAt.getTime() : null,
+              status: completedImmediately ? "ok" : "running",
+            }),
+          },
+        });
+        await tx.event.create({
+          data: {
+            topic: "routine.execution.queued",
+            entityId: execution.id,
+            payload: {
+              executionId: execution.id,
+              routineId: routine.id,
+              runId,
+              roundId,
+              kind: event ? "scheduled" : "test",
+            },
+          },
+        });
+        return queued;
+      });
+    } catch (error) {
+      if ((error as { code?: string }).code !== "P2002") throw error;
+      const routine = await this.prisma.routine.findFirst({
+        where: { ...routineOwnerWhere(owner), deletedAt: null, ...routineIdentifierWhere(id) },
+        select: { id: true },
+      });
+      if (!routine) throw error;
       const eventKey = event ? createHash("sha256").update(`${event.source}:${event.id}`).digest("hex") : requestId;
       const dedupeKey = `routine:${routine.id}:${event ? "event" : "manual"}:${eventKey}`;
-      const duplicate =
-        (await tx.routineExecution.findUnique({ where: { dedupeKey: dedupeKey } })) ??
-        (event
-          ? await tx.routineExecution.findFirst({
-              where: { routineId: routine.id, coalescedKeys: { has: dedupeKey } },
-            })
-          : null);
-      if (duplicate) return duplicate;
-      const active = await tx.routineExecution.count({
-        where: {
-          routineId: routine.id,
-          status: { in: ["queued", "running"] },
-        },
-      });
-      if (active > 0 && !event) {
-        throw new ApiError(409, "routine_already_running", "This routine is already running");
-      }
-      const routineOwner = routineOwnerFrom(routine);
-      if (active > 0 && event) return this.coalesceEvent(tx, routine, routineOwner, event, dedupeKey, firedAt);
-      const channel =
-        routineOwner.kind === "bot"
-          ? await tx.channel.findUnique({ where: { directKey: `bot:${routineOwner.id}` } })
-          : await tx.channel.findUnique({ where: { id: routineOwner.id } });
-      if (!channel || channel.archivedAt) {
-        throw new ApiError(
-          409,
-          "routine_channel_unavailable",
-          routineOwner.kind === "bot"
-            ? "The Bot chat is unavailable"
-            : "The group chat is unavailable"
-        );
-      }
-      if (routineOwner.kind === "group" && channel.kind !== "group") {
-        throw new ApiError(409, "routine_channel_unavailable", "The group chat is unavailable");
-      }
-      const revision = await tx.routineRevision.findUnique({
-        where: {
-          routineId_revision: { routineId: routine.id, revision: routine.revision },
-        },
-      });
-      if (!revision) {
-        throw new ApiError(
-          409,
-          "routine_revision_unavailable",
-          "This routine needs to be saved again before it can run"
-        );
-      }
-      const execution = await tx.routineExecution.create({
-        data: {
-          routineId: routine.id,
-          routineRevisionId: revision.id,
-          kind: event ? "scheduled" : "test",
-          status: "queued",
-          dedupeKey,
-          scheduledFor: firedAt,
-          enqueuedAt: firedAt,
-          ...(event ? { events: jsonInput([event]) } : {}),
-        },
-      });
-      let queued = execution;
-      let runId: string | null = null;
-      let roundId: string | null = null;
-      let completedImmediately = false;
-      if (routineOwner.kind === "bot") {
-        const wake = await this.host.enqueueWake(tx, {
-          botId: routineOwner.id,
-          channelId: channel.id,
-          origin: "routine",
-          type: event ? "routine.event" : "routine.manual",
-          ...(event
-            ? eventWake(routine, [event], firedAt)
-            : {
-                content: routineWakeContent({
-                  kind: "manual",
-                  name: routine.name,
-                  folder: routine.slug,
-                  schedule: routine.scheduleText,
-                  trigger: routine.trigger ?? undefined,
-                  timeZone: routine.timezone,
-                  firedAt,
-                  prompt: routine.prompt,
-                  provenance: routine.provenance,
-                }),
-              }),
-
-          clientId: dedupeKey,
-          priority: 290,
-          occurredAt: firedAt,
-          timeZone: routine.timezone,
-        });
-        runId = wake.run.id;
-        queued = await tx.routineExecution.update({
-          where: { id: execution.id },
-          data: { runId },
-        });
-      } else {
-        const seeded = await this.seedGroupRoutine(tx, { channelId: channel.id, routine, executionId: execution.id,
-          clientId: dedupeKey, firedAt, events: event ? [event] : undefined });
-        roundId = seeded.roundId;
-        queued = seeded.execution;
-      }
-      await tx.routine.update({
-        where: { id: routine.id },
-        data: {
-          lastRunAt: firedAt,
-          runLedger: appendRoutineRunLedger(routine.runLedger, {
-            id: execution.id,
-            trigger: event ? "event" : "manual",
-            startedAt: firedAt.getTime(),
-            finishedAt: completedImmediately ? firedAt.getTime() : null,
-            status: completedImmediately ? "ok" : "running",
-          }),
-        },
-      });
-      await tx.event.create({
-        data: {
-          topic: "routine.execution.queued",
-          entityId: execution.id,
-          payload: {
-            executionId: execution.id,
-            routineId: routine.id,
-            runId,
-            roundId,
-            kind: event ? "scheduled" : "test",
-          },
-        },
-      });
-      return queued;
-    });
+      result = await this.prisma.routineExecution.findUnique({ where: { dedupeKey } });
+      if (!result) throw error;
+    }
     if (owner.kind === "bot") await this.files?.writeRoutine(owner.id, result.routineId);
     if (result.channelMessageId) {
       const round = await this.prisma.channelRound.findUnique({
@@ -1931,6 +1945,10 @@ export class RoutineService {
         return { didDispatch: true, roundId };
         });
       } catch (error) {
+        // Another scheduler may have committed this occurrence while this
+        // transaction was racing with it. The unique dedupe key is the
+        // durable idempotency result, so do not record the loser as a failure.
+        if ((error as { code?: string }).code === "P2002") continue;
         // A broken owner/dispatch must not prevent unrelated routines from
         // firing. The failed transaction queued nothing; retain a visible
         // failed occurrence and advance its schedule in a separate transaction.
