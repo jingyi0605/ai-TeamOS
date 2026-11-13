@@ -468,7 +468,7 @@ describe("API contracts", () => {
     const [, scheme] = /\]\((\w+):\/\/app\/v1\/settings\?id=update-channel\)/.exec(captured.description)!;
     const [, product] = /only in (.+) chat, never through a connector\./.exec(captured.description)!;
     const expected = JSON.parse(
-      JSON.stringify(captured).replaceAll(product!, "outcomeGo").replaceAll(`${scheme}://`, "outcomego://")
+      JSON.stringify(captured).replaceAll(product!, "OutcomeGo").replaceAll(`${scheme}://`, "outcomego://")
     );
     const properties = expected.inputSchema.properties;
     const texts: Record<string, { description: string }> = {

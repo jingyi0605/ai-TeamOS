@@ -100,6 +100,6 @@ test("the draft contract carries the 10-21 field wording with outcomeGo's adapta
  expect(fields.target.description).toStartWith('Required for Slack. Where the message goes');
  expect(fields.channelId.description).toStartWith('Required for Slack. The channel or DM conversation id');
  expect(fields.from.description).toStartWith('Required for email. The plain address');
- expect(draft.description).toContain('outcomeGo verifies the routing (sending address, channel, reply target) before the card appears, shows it on the card, and refuses the draft');
+ expect(draft.description).toContain('OutcomeGo verifies the routing (sending address, channel, reply target) before the card appears, shows it on the card, and refuses the draft');
  expect(Object.keys(fields)).not.toContain('forwardMessageId');
 });

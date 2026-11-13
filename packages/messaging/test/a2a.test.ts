@@ -101,7 +101,7 @@ If it needs a reply or an action, handle it: reply to Planner with SendToAgent (
       })
     ).toBe(`[Group chat: "Testing" - with Test #2]
 New messages in the room (oldest first):
-User: Do you guys have access to my chats that i've sent to you? or are you guys just running off memories?
+outcomego_user: Do you guys have access to my chats that i've sent to you? or are you guys just running off memories?
 
 It's your turn, Bot. Reply in character with SendToUser if you have something worth adding; if you don't, end your turn without sending anything.`);
   });
@@ -131,7 +131,7 @@ It's your turn, Bot. Reply in character with SendToUser if you have something wo
         wrappingUp: true,
       })
     ).toContain(
-      'Participants: Bot (The user works with Workspace every day.)\nNew messages in the room (oldest first):\nBot: [in reply to User: "Can you both confirm?"] Same here.'
+      'Participants: Bot (The user works with Workspace every day.)\nNew messages in the room (oldest first):\nBot: [in reply to outcomego_user: "Can you both confirm?"] Same here.'
     );
     expect(
       buildGroupTurnPrompt({

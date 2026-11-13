@@ -742,7 +742,7 @@ describe("context turn reservation", () => {
     };
     await expect(
       runtime.run(turnRequest({ sessionPath: "/tmp/not-an-outcomego-session.jsonl" }))
-    ).rejects.toThrow("outside the outcomeGo session directory");
+    ).rejects.toThrow("outside the OutcomeGo session directory");
     expect(runtime.diagnostics.activeTurns).toBe(0);
   });
 
