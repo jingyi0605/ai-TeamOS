@@ -216,9 +216,7 @@ const lazyBudgets: Record<string, number> = {
   // 73,336, 46,419, 40,512 and 36,231.
   pluginDetail: 75_000,
   pluginConnection: 46_800,
-  // The OutcomeGo package name adds a small amount to the package studio's generated closure:
-  // 40,936 bytes on the beta.14 build.
-  pluginStudio: 41_000,
+  pluginStudio: 40_900,
   privateSkills: 37_000,
   settingsMicrophone: 12_000,
   basicMarkdown: 600_000,
@@ -315,9 +313,8 @@ const lazyBudgets: Record<string, number> = {
   // Saved-key replacement and explicit deletion (#197): 41,955.
   settingsTranscription: 42_300,
   liveVoice: 800_000,
-  // Search and Fetch pages with their dedicated WebP provider logos measure 33,677 bytes
-  // after the provider settings UI and its shared controls are included.
-  settingsProviders: 34_500,
+  // Search and Fetch pages with inlined 40 px WebP logos (~10 KB of the total).
+  settingsProviders: 32_000,
   // Shares lucide's triangle-alert chunk with Providers. The signed-out
   // compatibility guard brings the measured October release closure to 10,250 bytes.
   // Unified server updates with stages, idle confirmation and restart recovery
