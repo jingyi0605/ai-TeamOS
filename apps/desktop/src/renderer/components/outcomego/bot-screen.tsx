@@ -25,6 +25,7 @@ import {
   shouldRefreshScreenFrame,
 } from "../../lib/screen-session";
 import { Button } from "../ui/button";
+import { BrowserNetworkIndicator } from "./browser-network-indicator";
 import { ComputerConnectionStatus } from "./computer-connection-status";
 import { Skeleton } from "../ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip";
@@ -362,17 +363,18 @@ export function BotScreen({
           the full-window computer outside that containing block. */}
       {open &&
         createPortal(
-          <div className="fixed inset-0 z-[70] flex flex-col bg-black/[0.94] text-white">
+          <div className="fixed inset-0 z-[70] flex flex-col bg-background text-foreground">
             {/* One draggable title row; content starts past the macOS window
               buttons, which end at x=76px. */}
-            <header className="electron-drag flex min-h-11 shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 border-b border-white/[0.035] py-1.5 pl-[88px] pr-3">
+            <header className="electron-drag flex min-h-11 shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1 border-b border-border py-1.5 pl-[88px] pr-3">
               {!handoff && (
-                <span className="mr-auto min-w-0 truncate text-[12px] text-white/55">
+                <span className="mr-auto min-w-0 truncate text-[12px] text-foreground-secondary">
                   {notice ?? (controlling ? t("You have control") : t("Watching only"))}
                 </span>
               )}
+              <BrowserNetworkIndicator />
               <Button
-                className="electron-no-drag text-white/80 hover:bg-white/[0.055] hover:text-white"
+                className="electron-no-drag text-foreground-secondary hover:bg-subtle hover:text-foreground"
                 disabled={controlPending || !viewerReady}
                 onClick={() => void changeControl(!controlling)}
                 size="sm"
@@ -382,11 +384,11 @@ export function BotScreen({
               </Button>
               {handoff ? (
                 <>
-                  <span className="mr-auto min-w-0 basis-full py-2 text-[13px] leading-4 text-white/85 md:flex-1 md:basis-0 md:py-0">
+                  <span className="mr-auto min-w-0 basis-full py-2 text-[13px] leading-4 text-foreground md:flex-1 md:basis-0 md:py-0">
                     {notice ?? (handoff.reason || t("Complete the requested step"))}
                   </span>
                   <Button
-                    className="electron-no-drag text-white/70 hover:bg-white/[0.055] hover:text-white"
+                    className="electron-no-drag text-foreground-secondary hover:bg-subtle hover:text-foreground"
                     disabled={handoffPending}
                     onClick={() => void finishHandoff("skip")}
                     size="sm"
@@ -395,7 +397,7 @@ export function BotScreen({
                     {t("Skip this step")}
                   </Button>
                   <Button
-                    className="electron-no-drag bg-white text-black hover:bg-white/90"
+                    className="electron-no-drag bg-foreground text-background hover:bg-foreground/90"
                     disabled={handoffPending}
                     onClick={() => void finishHandoff("complete")}
                     size="sm"
@@ -408,7 +410,7 @@ export function BotScreen({
                 <TooltipTrigger asChild>
                   <Button
                     aria-label={t("Close computer view")}
-                    className="electron-no-drag size-8 rounded-md text-white/65 hover:bg-white/[0.055] hover:text-white"
+                    className="electron-no-drag size-8 rounded-md text-foreground-secondary hover:bg-subtle hover:text-foreground"
                     onClick={closeViewer}
                     size="icon-sm"
                     variant="ghost"
@@ -420,7 +422,7 @@ export function BotScreen({
               </Tooltip>
             </header>
             {error && viewerReady && (
-              <p className="shrink-0 px-3 py-2 text-sm text-red-300" role="alert">
+              <p className="shrink-0 px-3 py-2 text-sm text-destructive" role="alert">
                 {error}
               </p>
             )}
@@ -460,7 +462,7 @@ export function BotScreen({
                       </ComputerConnectionStatus>
                       {error && (
                         <Button
-                          className="mt-4 border-white/15 bg-white/5 text-white hover:bg-white/10"
+                          className="mt-4"
                           onClick={retryConnection}
                           size="sm"
                           variant="outline"

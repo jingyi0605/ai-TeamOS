@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { BrowserNetworkIndicator } from "./browser-network-indicator";
 import { ComputerConnectionStatus } from "./computer-connection-status";
 import { resolveVncSocketUrl } from "../../client/runtime-url";
 import { useI18n } from "../../lib/i18n";
@@ -311,7 +310,6 @@ export default function VncComputer({
         role="application"
         aria-label={t("{name}'s interactive Linux computer", { name })}
       />
-      <BrowserNetworkIndicator />
       {(state !== "connected" || error) && (
         <div
           className={`pointer-events-none absolute ${lastFrame || error ? "bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-black/70 px-3 py-1" : "inset-0 grid place-items-center"}`}

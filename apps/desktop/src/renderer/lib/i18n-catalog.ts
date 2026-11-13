@@ -274,6 +274,8 @@ export const sourceTranslations: Record<string, string> = {
   "{percent}% used": "已使用 {percent}%",
   "Computer label": "电脑名称",
   "Server connection": "服务器连接",
+  "Network exit": "网络出口",
+  "Select network exit": "选择网络出口",
   "Connection priority": "连接优先级",
   "Test unavailable": "测试不可用",
   "Test active connection": "测试当前连接",
