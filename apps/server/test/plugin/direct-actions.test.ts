@@ -58,7 +58,7 @@ describe("plugin installs on turns the user did not start", () => {
     for (const origin of ["bootstrap","agent","routine","event","connector","background_revival","handoff_resume","broadcast"] as const) {
       const {service,request,records,executions} = fixture();
       expect(await service.requestAction({...request,origin})).toBe(
-        "Nothing was installed: the user did not start this turn, and installing adds Fixture to their account. Only install when the user asks for it in their own chat with you, never on a turn a routine, another agent, or a Slack or Teams message started. Tell the user this needs Fixture, which they can add themselves in OutcomeGo.",
+        "Nothing was installed: the user did not start this turn, and installing adds Fixture to their account. Only install when the user asks for it in their own chat with you, never on a turn a routine, another agent, or a Slack or Teams message started. Tell the user this needs Fixture, which they can add themselves in outcomeGo.",
       );
       expect(executions()).toBe(0);
       expect(records.size).toBe(0);
@@ -71,7 +71,7 @@ describe("plugin installs on turns the user did not start", () => {
   test("a group-room turn is refused as a room turn, pointing to the 1:1 chat", async () => {
     const {service,request,records,executions} = fixture();
     expect(await service.requestAction({...request,origin:"group"})).toBe(
-      'Nothing was installed: this is a group-room turn, and installing adds Fixture to your user\'s account, which happens only when they ask for it in their own 1:1 chat with you. If your user wants Fixture, ask them to continue in your 1:1 chat (pass "to":"dm" on SendToUser to reach it) or to add it themselves in OutcomeGo.',
+      'Nothing was installed: this is a group-room turn, and installing adds Fixture to your user\'s account, which happens only when they ask for it in their own 1:1 chat with you. If your user wants Fixture, ask them to continue in your 1:1 chat (pass "to":"dm" on SendToUser to reach it) or to add it themselves in outcomeGo.',
     );
     expect(executions()).toBe(0);
     expect(records.size).toBe(0);

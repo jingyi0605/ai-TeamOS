@@ -47,7 +47,7 @@ test('managed workflows omit categorical authentication and transaction handover
 });
 
 test('connector skills install without asking and promise no connect card', () => {
-  // OutcomeGo has no connect cards: InstallPlugin installs, AuthenticateMcpServer starts sign-in.
+  // outcomeGo has no connect cards: InstallPlugin installs, AuthenticateMcpServer starts sign-in.
   for (const item of managed.skills) {
     expect(item.content).not.toMatch(/connect card (is the ask|appears|handles|is shown)/);
     expect(item.content).not.toContain('once the user agrees, install it');
@@ -96,7 +96,7 @@ test('purchases takes the user\'s own card and keeps no card', () => {
     'call RequestUserForm with reason "checkout"',
     'use them as given for this checkout, without asking them to re-enter the card in the Secure Form',
     "Never tell the user you can't take their card",
-    'OutcomeGo does not keep cards',
+    'outcomeGo does not keep cards',
     'verify whether the order went through (confirmation page, order history, email) before retrying',
   ]) expect(purchases).toContain(rule);
   // The form host reaches card inputs embedded from a payment provider, so those get the form too.
@@ -232,7 +232,7 @@ test('every tool a managed skill names exists under that name', async () => {
   const tool = (name: string) => { try { return referenceTool(name); } catch { return undefined; } };
   const argumentNames = new Set(managed.skills.flatMap(s => [...s.content.matchAll(/\b[A-Z][A-Za-z]+\b/g)].flatMap(([name]) => Object.keys(tool(name)?.inputSchema.properties ?? {}))));
   const words = new Set([
-    'AgentMail', 'ContentType', 'DejaVu', 'DevTools', 'DoorDash', 'GitHub', 'GitLab', 'LibreOffice', 'LinkedIn', 'OpenTable', 'OutcomeGo',
+    'AgentMail', 'ContentType', 'DejaVu', 'DevTools', 'DoorDash', 'GitHub', 'GitLab', 'LibreOffice', 'LinkedIn', 'OpenTable', 'outcomeGo',
     'PagerDuty', 'PartName', 'PowerPoint', 'PptxGenJS', 'SaaS', 'TheFork', 'WhatsApp', 'YouTube',
     // Prompt blocks, stock states and routine wake blocks, not tools.
     'user_info', 'agent_skills', 'automation_status', 'in_stock', 'out_of_stock', 'made_to_order', 'github_event', 'linear_event', 'microsoft_teams_message',

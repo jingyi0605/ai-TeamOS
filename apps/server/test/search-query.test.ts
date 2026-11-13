@@ -59,7 +59,7 @@ describe("search query parsing", () => {
       new URL("../../../packages/db/prisma/sql/raw-schema.sql", import.meta.url)
     ).text();
 
-    expect(migration).toContain('"outcomego_search_document_title_exact_hash_idx"');
+    expect(migration).toContain('"SearchDocument_title_exact_hash_idx"');
     expect(migration).toContain('md5(lower("title"))');
   });
 

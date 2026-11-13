@@ -303,7 +303,7 @@ test("replay installs offline when it can, and from its own lists otherwise", as
 
 test("while a bot's sources are configured, the image's packages can't come from them", async () => {
   expect(imagePackagePins(["bash", "curl"], ["cli.github.com"])).toBe(
-    "Explanation: OutcomeGo replay: the image's packages never come from a source a bot added.\nPackage: bash curl\nPin: origin \"cli.github.com\"\nPin-Priority: -1\n"
+    "Explanation: outcomeGo replay: the image's packages never come from a source a bot added.\nPackage: bash curl\nPin: origin \"cli.github.com\"\nPin-Priority: -1\n"
   );
   const fake = await fakeSystem({ bash: "5" }, { jq: [{ version: "1", uri: DEBIAN, suite: "trixie" }] });
   await writeFile(fake.system("etc/apt/sources.list.d/gh.list"), `deb ${GH} stable main\n`);

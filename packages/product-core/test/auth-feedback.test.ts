@@ -59,7 +59,7 @@ describe("shared onboarding error copy", () => {
   test("turns a malformed sign-in success into a recovery action", () => {
     expect(
       authErrorMessage(
-        new Error("The server did not return an OutcomeGo session token"),
+        new Error("The server did not return an outcomeGo session token"),
         "Could not sign in"
       )
     ).toContain("contact your server administrator");

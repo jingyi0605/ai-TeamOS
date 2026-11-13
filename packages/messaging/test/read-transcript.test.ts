@@ -56,7 +56,7 @@ test("browser form entry, arbitrary execution and approval results remain exclud
 });
 
 test("desktop history retains screenshot receipts after interruption without replaying inputs or images", () => {
-  for (const tool of ["outcomego_computer", "Screenshot"]) {
+  for (const tool of ["Computer", "Screenshot"]) {
     const value = transcriptToolProjection({tool,
       arguments: {action: "type", text: "PRIVATE_TYPED_INPUT", then: [{action: "key", key: "Return"}]},
       result: {content: [

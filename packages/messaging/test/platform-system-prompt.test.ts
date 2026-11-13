@@ -93,7 +93,7 @@ describe("platform prompt integration", () => {
   test("the inline workflows promise no connect card and draft by default", () => {
     const prompt = renderPlatformBaseSystemPrompt({ managedSkills: false });
     expect(prompt).not.toMatch(/install\/connect card|Let the card handle authentication|connection in the card|should use the authorized service's send path/);
-    expect(prompt).toContain("OutcomeGo shows no connect card: AuthenticateMcpServer starts sign-in, and when its result hands you a connection-settings link, send that link to the user.");
+    expect(prompt).toContain("outcomeGo shows no connect card: AuthenticateMcpServer starts sign-in, and when its result hands you a connection-settings link, send that link to the user.");
     expect(prompt).toContain('Outgoing email and messages follow the "Never send email or messages unasked" section: asking you to send is not asking you to skip the draft.');
   });
 
@@ -345,7 +345,7 @@ describe("platform prompt integration", () => {
 
   test("an automation run gets its own section after the identity and none of the chat-turn sections", () => {
     const prompt = renderPlatformBaseSystemPrompt({ automationRun: AUTOMATION_RUN_INSTRUCTIONS });
-    expect(prompt).toStartWith(`You are OutcomeGo, a warm, concise desktop assistant.\n\n${AUTOMATION_RUN_INSTRUCTIONS}\n\n## User communication style`);
+    expect(prompt).toStartWith(`You are outcomeGo, a warm, concise desktop assistant.\n\n${AUTOMATION_RUN_INSTRUCTIONS}\n\n## User communication style`);
     for (const heading of ["## How a turn works", "## Files and visuals", "## Asking for decisions", "## Threaded replies"]) expect(prompt).not.toContain(heading);
     expect(prompt).not.toContain("You can pay for the user's purchases");
     expect(AUTOMATION_RUN_INSTRUCTIONS).toContain("surface a form, handoff, connector, draft, or share card.\n");
@@ -392,7 +392,7 @@ describe("platform prompt integration", () => {
     expect(prompt).toContain("The user lives in UTC (currently UTC+0), and the box clock is set to that zone, so `date`, file mtimes, and other box-local times already read in the user's time.");
     // Skills are files on the box, so the catalog text is the on-disk one.
     expect(prompt).toContain("It is still on disk, readable, and invocable immediately.");
-    expect(prompt).toContain("Managed skills are supplied by OutcomeGo, do NOT live in those folders");
+    expect(prompt).toContain("Managed skills are supplied by outcomeGo, do NOT live in those folders");
     expect(prompt).toContain("A skill's name is the name field in its SKILL.md frontmatter");
     // The reference's Time section, then its box section with the registered-computer file moves.
     expect(prompt).toContain("A timestamp that carries its own zone is not box-local.");
