@@ -97,6 +97,8 @@ import { UserFormHost, type FormBrowser, type FormPageBinding } from "../user-fo
 import { boxHelpPage } from "../box-help-page";
 import type { ActiveTurn, RuntimeDynamicTool } from "./types";
 import { renderShellAwaitResult } from "@outcomego/shell-jobs";
+import { scopedProcessEnvironment } from "@outcomego/plugin-sdk";
+import { objectToolSchema } from "../tool-schema";
 
 export const GRAPHICAL_WORKER_SHELL_DESCRIPTION = [
   "Executes a given command in a shell session with optional foreground timeout.",
@@ -349,6 +351,93 @@ export class RuntimeTools {
     );
     this.turnSecrets.set(active, environment);
     return environment;
+  }
+
+  private async executeBitwardenCredential(
+    active: ActiveTurn,
+    callId: string,
+    args: unknown,
+    signal?: AbortSignal
+  ): Promise<AgentToolResult<Record<string, unknown>>> {
+    const input = args && typeof args === "object" ? args as Record<string, unknown> : {};
+    const itemId = typeof input.itemId === "string" ? input.itemId : "";
+    const field = typeof input.field === "string" ? input.field : "";
+    if (!itemId || !["username", "password", "totp"].includes(field)) throw new Error("A Bitwarden itemId and field are required");
+    const issued = await this.privateControl(active, `${callId}:issue`, "ReadBitwardenCredential", { itemId, field }, signal);
+    const leaseToken = typeof issued.leaseToken === "string" ? issued.leaseToken : "";
+    if (!leaseToken) throw new Error("The Bitwarden read lease was not issued");
+    const consumed = await this.privateControl(active, `${callId}:consume`, "ConsumeBitwardenReadLease", { leaseToken }, signal);
+    const environment = consumed.environment;
+    if (!environment || typeof environment !== "object" || Array.isArray(environment)) throw new Error("The Bitwarden read environment was invalid");
+    const configured = Object.fromEntries(Object.entries(environment).map(([key, value]) => {
+      if (typeof value !== "string") throw new Error("The Bitwarden read environment was invalid");
+      return [key, value];
+    }));
+    const root = process.env.OUTCOMEGO_AGENT_DATA_ROOT ?? "/agent-data";
+    const cache = JSON.parse(await Bun.file(join(root, "plugin-skills", "cache.json")).text()) as { packages?: Array<{ pluginId?: unknown; installPath?: unknown }> };
+    const installed = cache.packages?.find((entry) => entry.pluginId === "bitwarden" && typeof entry.installPath === "string");
+    if (!installed || typeof installed.installPath !== "string") throw new Error("The Bitwarden package is unavailable");
+    const wrapper = join(installed.installPath, "skills/bitwarden/scripts/bw.sh");
+    const allowedRoot = await realpath(join(root, "plugins", "cache"));
+    const resolvedWrapper = await realpath(wrapper);
+    if (!resolvedWrapper.startsWith(`${allowedRoot}${sep}`)) throw new Error("The Bitwarden wrapper is outside the managed package cache");
+    const child = Bun.spawn(["bash", resolvedWrapper, field, itemId], {
+      env: scopedProcessEnvironment(process.env, configured),
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const timer = setTimeout(() => child.kill(), 120_000);
+    try {
+      const [stdout] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+      const result = JSON.parse(stdout) as Record<string, unknown>;
+      if (result.ok !== true || typeof result.value !== "string") throw new Error(typeof result.message === "string" ? result.message : "The Bitwarden credential could not be read");
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, kind: field, itemId, value: result.value }) }], details: { kind: field, itemId } };
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      throw new Error(error instanceof Error ? error.message : "The Bitwarden credential could not be read");
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  private async executeBitwardenSearch(
+    active: ActiveTurn,
+    callId: string,
+    args: unknown,
+    signal?: AbortSignal
+  ): Promise<AgentToolResult<Record<string, unknown>>> {
+    const input = args && typeof args === "object" ? args as Record<string, unknown> : {};
+    const query = typeof input.query === "string" ? input.query : "";
+    const title = input.title === true;
+    const issued = await this.privateControl(active, `${callId}:issue`, "SearchBitwardenItems", { query, title }, signal);
+    const leaseToken = typeof issued.leaseToken === "string" ? issued.leaseToken : "";
+    const consumed = await this.privateControl(active, `${callId}:consume`, "ConsumeBitwardenSearchLease", { leaseToken }, signal);
+    const environment = consumed.environment;
+    if (!environment || typeof environment !== "object" || Array.isArray(environment)) throw new Error("The Bitwarden search environment was invalid");
+    const configured = Object.fromEntries(Object.entries(environment).map(([key, value]) => {
+      if (typeof value !== "string") throw new Error("The Bitwarden search environment was invalid");
+      return [key, value];
+    }));
+    const root = process.env.OUTCOMEGO_AGENT_DATA_ROOT ?? "/agent-data";
+    const cache = JSON.parse(await Bun.file(join(root, "plugin-skills", "cache.json")).text()) as { packages?: Array<{ pluginId?: unknown; installPath?: unknown }> };
+    const installed = cache.packages?.find((entry) => entry.pluginId === "bitwarden" && typeof entry.installPath === "string");
+    if (!installed || typeof installed.installPath !== "string") throw new Error("The Bitwarden package is unavailable");
+    const resolvedWrapper = await realpath(join(installed.installPath, "skills/bitwarden/scripts/bw.sh"));
+    const allowedRoot = await realpath(join(root, "plugins", "cache"));
+    if (!resolvedWrapper.startsWith(`${allowedRoot}${sep}`)) throw new Error("The Bitwarden wrapper is outside the managed package cache");
+    const child = Bun.spawn(["bash", resolvedWrapper, ...(title ? ["search", "--title", query] : ["search", query])], {
+      env: scopedProcessEnvironment(process.env, configured), stdin: "ignore", stdout: "pipe", stderr: "pipe",
+    });
+    const timer = setTimeout(() => child.kill(), 120_000);
+    try {
+      const [stdout] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+      const result = JSON.parse(stdout) as Record<string, unknown>;
+      if (result.ok !== true || !Array.isArray(result.candidates)) throw new Error(typeof result.message === "string" ? result.message : "The Bitwarden search could not be completed");
+      return { content: [{ type: "text", text: JSON.stringify({ ok: true, kind: "search", ambiguous: result.ambiguous === true, candidates: result.candidates }) }], details: { kind: "search", ambiguous: result.ambiguous === true } };
+    } finally {
+      clearTimeout(timer);
+    }
   }
   constructor(
     private readonly screens: ScreenBroker,
@@ -1605,6 +1694,38 @@ export class RuntimeTools {
   private fullDynamicCatalog(
     active: ActiveTurn
   ): Array<DynamicNamespaceDefinition<RuntimeDynamicTool>> {
+    const bitwardenTools: RuntimeDynamicTool[] =
+      (active.runtimeProfile === "agent" || active.subagentType === "computerUse") && !active.readOnly
+        ? [
+            {
+              name: "RequestBitwardenReadApproval",
+              description: "Ask the user to approve reading one or more Bitwarden login items. Only non-secret item metadata is allowed.",
+              inputSchema: objectToolSchema({
+                candidates: { type: "array", minItems: 1, maxItems: 6, items: { type: "object", properties: { itemId: { type: "string" }, title: { type: "string" }, hostname: { type: "string" } }, required: ["itemId", "title", "hostname"], additionalProperties: false } },
+                itemId: { type: "string" }, title: { type: "string" }, hostname: { type: "string" },
+              }),
+              source: "first-party",
+              decodeArguments: (args) => args ?? {},
+              execute: (turn, callId, args, signal) => this.callControlPlaneTool(turn, callId, "RequestBitwardenReadApproval", args, signal),
+            },
+            {
+              name: "SearchBitwardenItems",
+              description: "Search Bitwarden login metadata by the current HTTPS hostname or an exact title query. Results contain no secrets.",
+              inputSchema: objectToolSchema({ query: { type: "string", minLength: 1, maxLength: 2048 }, title: { type: "boolean" } }, ["query"]),
+              source: "first-party",
+              decodeArguments: (args) => args ?? {},
+              execute: (turn, callId, args, signal) => this.executeBitwardenSearch(turn, callId, args, signal),
+            },
+            {
+              name: "ReadBitwardenCredential",
+              description: "Read one approved Bitwarden username, password or TOTP for the current task.",
+              inputSchema: objectToolSchema({ itemId: { type: "string" }, field: { type: "string", enum: ["username", "password", "totp"] } }, ["itemId", "field"]),
+              source: "first-party",
+              decodeArguments: (args) => args ?? {},
+              execute: (turn, callId, args, signal) => this.executeBitwardenCredential(turn, callId, args, signal),
+            },
+          ]
+        : [];
     return dynamicCatalog(
       (...args) => this.callControlPlaneTool(...args),
       (turn, callId, args, signal) => this.executeTodoWrite(turn, callId, args, signal),
@@ -1612,6 +1733,7 @@ export class RuntimeTools {
       active,
       (turn, _callId, args, signal) => this.awaitShellForTurn(turn, args, signal),
       [
+        ...bitwardenTools,
         // Workers that use the parent's connectors move files with them both ways;
         // graphical and media workers have no connector accounts.
         ...((active.runtimeProfile !== "subagent" || subagentUsesParentConnectors(active.subagentType)) && !active.readOnly

@@ -10,8 +10,14 @@ export interface PluginField {
   enum?: ConfigValue[];
   placeholder?: string;
   helpText?: string | null;
-  /** Plugin-level secrets only: also expose the value to Bot computer processes under this name. */
+  /** Validate a self-hosted service's HTTPS origin without credentials or a path. */
+  format?: "https-origin";
+  /** Preserve significant whitespace, for example in a vault's master password. */
+  preserveWhitespace?: boolean;
+  /** Plugin runtime fields: expose the value to Bot computer processes under this name. */
   environment?: string;
+  /** Keep the value out of ordinary Shell/process environments; only a host-controlled tool may use it. */
+  protected?: boolean;
 }
 export interface PluginSetup {
   kind: "none" | "token" | "oauth" | "oauth_client";

@@ -48,6 +48,7 @@ Some installed plugins include skills and runtime instructions. These load for a
 | [Notion](../../packages/plugins/notion/README.md) | 14: `search`, `find`, `create-page`, `create-task`, `create-database-row`, `database-query`, `knowledge-capture`, `meeting-intelligence`, `research-documentation`, `spec-to-implementation`, `tasks-plan`, `tasks-build`, `tasks-explain-diff`, and `tasks-setup` |
 | [Plaid](../../packages/plugins/plaid/README.md) | 4: `plaid-setup`, `plaid-connections`, `plaid-financial-data`, and `plaid-troubleshooting` |
 | [1Password](../../packages/plugins/1password/README.md) | 1: `1password` |
+| [Bitwarden / Vaultwarden](../../packages/plugins/bitwarden/README.md) | 1: `bitwarden` |
 | [Google Drive](../../packages/plugins/google-drive/README.md) | 1: `google-drive` |
 | [Google Docs](../../packages/plugins/google-docs/README.md) | 1: `google-docs` |
 | [Google Sheets](../../packages/plugins/google-sheets/README.md) | 1: `google-sheets` |

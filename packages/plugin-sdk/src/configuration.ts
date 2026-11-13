@@ -28,6 +28,18 @@ export function validateValues(
       throw new Error(`${field.label} must be finite`);
     if (typeof value === "string" && value.length > 20_000)
       throw new Error(`${field.label} is too long`);
+    if (field.format === "https-origin") {
+      let url: URL;
+      try {
+        url = new URL(String(value));
+      } catch {
+        throw new Error(`${field.label} must be an HTTPS origin without credentials, path, query or fragment`);
+      }
+      if (typeof value !== "string" || /[\s\u0000-\u001f\u007f\\?#]/u.test(value) ||
+          !/^https:\/\//i.test(value) || url.protocol !== "https:" || url.username || url.password ||
+          !url.hostname || (url.pathname !== "/" && url.pathname !== "") || url.search || url.hash)
+        throw new Error(`${field.label} must be an HTTPS origin without credentials, path, query or fragment`);
+    }
     if (field.enum && !field.enum.includes(value as ConfigValue))
       throw new Error(`${field.label} must be one of its listed options`);
     result[field.key] = value as ConfigValue;
@@ -38,7 +50,7 @@ export function validateValues(
   return result;
 }
 
-/** Plugin-level secrets delivered to Bot computer processes rather than to a connector. */
+/** Plugin runtime fields delivered to Bot computer processes rather than to a connector. */
 export const environmentFields = (plugin: PluginDefinition): PluginField[] =>
   (plugin.setupFields ?? []).filter((field) => field.environment !== undefined);
 

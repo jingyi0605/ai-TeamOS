@@ -24,6 +24,7 @@ import { parseOutcomeGoMarketplace } from "../../plugins/outcomego-marketplace";
 import { resolveUpstreamPlugin } from "../../plugins/upstream-package";
 import { serviceEffect, toJson } from "../service-utils";
 import { retainPluginEnvironment } from "../process-secrets";
+import { assertPluginEnvironmentAvailable } from "./installations";
 import {
   canonicalJson,
   definitionFromManifest,
@@ -459,6 +460,7 @@ export class PluginManagement {
           "The package changed; review the update again"
         );
       parsePluginDefinition(next);
+      await assertPluginEnvironmentAvailable(this.prisma, next);
       await Promise.all(
         installation.connections.map((connection) => this.stop(connection.id, connection.transport))
       );

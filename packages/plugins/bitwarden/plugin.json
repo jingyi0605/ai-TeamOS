@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "key": "bitwarden",
+  "version": "1.0.0",
+  "name": "Bitwarden / Vaultwarden",
+  "description": "Bots sign in with usernames, passwords and one-time codes from Bitwarden or self-hosted Vaultwarden.",
+  "publisher": "OutcomeGo",
+  "category": "Login and Credential Management",
+  "featured": false,
+  "components": ["skills"],
+  "connections": [],
+  "icon": "assets/icon.png",
+  "homepageUrl": "https://bitwarden.com/help/cli/",
+  "setupFields": [
+    { "key": "serverUrl", "label": "Server URL", "required": true, "secret": false, "format": "https-origin", "environment": "BW_SERVER_URL", "protected": true, "placeholder": "https://vault.example.test", "helpText": "HTTPS origin reachable from the bot computer. For Bitwarden Cloud use https://vault.bitwarden.com or https://vault.bitwarden.eu." },
+    { "key": "email", "label": "Account email", "required": true, "secret": false, "environment": "BW_EMAIL", "protected": true },
+    { "key": "clientId", "label": "Personal API client ID", "required": true, "secret": true, "environment": "BW_CLIENT_ID", "protected": true },
+    { "key": "clientSecret", "label": "Personal API client secret", "required": true, "secret": true, "environment": "BW_CLIENT_SECRET", "protected": true },
+    { "key": "masterPassword", "label": "Master password", "required": true, "secret": true, "preserveWhitespace": true, "environment": "BW_MASTER_PASSWORD", "protected": true, "helpText": "Used to unlock the vault. Leading and trailing spaces are significant." }
+  ],
+  "installationSteps": [
+    "Use a dedicated Bitwarden or Vaultwarden account with access only to the logins bots need. Grant read access to the required collections where your provider supports it. Every bot shares this plugin configuration.",
+    "In the web vault, open Settings → Security → Keys → View API key. Copy the personal client ID and client secret; organization API keys are not supported.",
+    "Enter the HTTPS server origin, account email, API key and master password below. The bot computer must resolve and reach that origin and trust its TLS certificate. Its localhost is the computer container itself.",
+    "The skill installs verified Bitwarden CLI 2026.10.1 on first use. Linux and macOS on x64/ARM64 require Python 3, curl and unzip. It authenticates and syncs afresh for each read; no email/password fallback or interactive MFA automation is provided.",
+    "The wrapper exposes reads only; general Shell access is broader. Credentials read by a bot can enter its model context and existing conversation or terminal history, as with 1Password. Replace individual fields here to rotate them; uninstalling removes configuration, not the provider account."
+  ],
+  "skills": [{ "name": "bitwarden", "description": "Read saved website logins and one-time codes from Bitwarden or Vaultwarden. Use when the user requests credentials or a website needs a username, password or verification code.", "path": "skills/bitwarden", "agents": ["main", "computerUse"] }]
+}

@@ -36,8 +36,25 @@ import { serviceEffect } from "./service-utils";
 import { botSubagentId, type SubagentService } from "./subagent/service";
 import type { TodoService } from "./todo-service";
 import type { RichMessageService } from "./rich-message-service";
-import { processEnvironment } from "./process-secrets";
+import { processEnvironment, protectedPluginEnvironment } from "./process-secrets";
 import { withConnectorDraftCardReminder } from "./connector-draft-reminder";
+import { createHash, randomUUID } from "node:crypto";
+
+const UUID = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+const bitwardenCandidate = (value: unknown): { itemId: string; title: string; hostname: string } => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new ApiError(400, "bitwarden_candidate_invalid", "A Bitwarden candidate is invalid");
+  const candidate = value as Record<string, unknown>;
+  if (typeof candidate.itemId !== "string" || !UUID.test(candidate.itemId) ||
+      typeof candidate.title !== "string" || !candidate.title.trim() || candidate.title.length > 200 ||
+      typeof candidate.hostname !== "string" || !candidate.hostname.trim() || candidate.hostname.length > 200)
+    throw new ApiError(400, "bitwarden_candidate_invalid", "A Bitwarden candidate is invalid");
+  return { itemId: candidate.itemId, title: candidate.title.trim(), hostname: candidate.hostname.trim() };
+};
+const approvalReference = (value: unknown): string | null => {
+  const text = typeof value === "string" ? value : "";
+  const match = /BITWARDEN_APPROVAL:([0-9a-f-]{36})/i.exec(text);
+  return match?.[1] ?? null;
+};
 
 export class InternalToolService {
   constructor(
@@ -97,6 +114,104 @@ export class InternalToolService {
       // Private supervisor operation, never registered in any model catalog.
       if (request.tool === "RefreshToolCatalog") return {namespaces:await this.plugins.dynamicNamespaces(childIdentity?.parentBotId ?? request.botId)};
       if (request.tool === "ReadProcessSecrets") return { environment: await processEnvironment(this.prisma, request.botId) };
+      const bitwardenCallerAllowed = !childIdentity || childIdentity.subagentType === "computerUse";
+      if (["SearchBitwardenItems", "RequestBitwardenReadApproval", "ReadBitwardenCredential", "ConsumeBitwardenReadLease", "ConsumeBitwardenSearchLease"].includes(request.tool) &&
+          (!bitwardenCallerAllowed || run.origin === "routine"))
+        throw new ApiError(403, "bitwarden_tool_forbidden", "Bitwarden reads are available only to the user-facing agent");
+      if (request.tool === "SearchBitwardenItems") {
+        const input = request.arguments && typeof request.arguments === "object" ? request.arguments as Record<string, unknown> : {};
+        const query = typeof input.query === "string" ? input.query.trim() : "";
+        const title = input.title === true;
+        if (!query || query.length > 2048 || /[\x00-\x1f\x7f]/.test(query)) throw new ApiError(400, "bitwarden_search_invalid", "A Bitwarden search query is required");
+        const leaseToken = randomUUID();
+        await this.prisma.bitwardenReadApproval.create({ data: { botId: request.botId, channelId: request.channelId, sourceRunId: request.runId, title: "__search__", hostname: title ? "title" : query, status: "approved", expiresAt: new Date(Date.now() + 30_000), leaseTokenHash: createHash("sha256").update(leaseToken).digest("hex"), leaseExpiresAt: new Date(Date.now() + 30_000) } });
+        return { leaseToken, title };
+      }
+      if (request.tool === "RequestBitwardenReadApproval") {
+        const input = request.arguments && typeof request.arguments === "object" ? request.arguments as Record<string, unknown> : {};
+        const rawCandidates = Array.isArray(input.candidates) ? input.candidates : [input];
+        const candidates = rawCandidates.map(bitwardenCandidate);
+        if (!candidates.length || candidates.length > 6) throw new ApiError(400, "bitwarden_candidates_required", "Provide one to six Bitwarden candidates");
+        const approval = await this.prisma.bitwardenReadApproval.create({
+          data: {
+            botId: request.botId,
+            channelId: request.channelId,
+            sourceRunId: request.runId,
+            itemId: candidates.length === 1 ? candidates[0]!.itemId : null,
+            title: candidates.length === 1 ? candidates[0]!.title : "Multiple Bitwarden items",
+            hostname: candidates.length === 1 ? candidates[0]!.hostname : "Multiple hostnames",
+            expiresAt: new Date(Date.now() + 15 * 60_000),
+          },
+        });
+        try {
+          const sent = await this.messaging.sendVisible(context, {
+            type: "widget",
+            end_turn: true,
+            widget: {
+              prompt: candidates.length === 1
+                ? `Allow reading the Bitwarden item "${candidates[0]!.title}" for ${candidates[0]!.hostname}?`
+                : "Which Bitwarden item may be read for this task?",
+              helpText: "This permission applies to this item for the current task and expires in 15 minutes.",
+              options: candidates.map((candidate) => ({
+                label: `${candidate.title} - ${candidate.hostname}`,
+                value: candidate.itemId,
+              })),
+            },
+          });
+          const messageId = sent.acknowledgement && typeof sent.acknowledgement === "object" && typeof sent.acknowledgement.message_id === "string"
+            ? sent.acknowledgement.message_id : null;
+          if (!messageId) throw new Error("Bitwarden approval widget was not persisted");
+          await this.prisma.bitwardenReadApproval.update({ where: { id: approval.id }, data: { widgetMessageId: messageId } });
+          return { sent: true, waiting_for_user: true };
+        } catch (error) {
+          await this.prisma.bitwardenReadApproval.update({ where: { id: approval.id }, data: { status: "denied" } }).catch(() => undefined);
+          throw error;
+        }
+      }
+      if (request.tool === "ReadBitwardenCredential") {
+        const input = request.arguments && typeof request.arguments === "object" ? request.arguments as Record<string, unknown> : {};
+        const itemId = typeof input.itemId === "string" ? input.itemId : "";
+        const field = input.field;
+        if (!UUID.test(itemId) || !["username", "password", "totp"].includes(String(field)))
+          throw new ApiError(400, "bitwarden_read_invalid", "A Bitwarden itemId and field are required");
+        const payload = run.inboxEvents[0]?.payload as Record<string, unknown> | undefined;
+        const reference = approvalReference(payload?.content);
+        if (!reference) throw new ApiError(403, "bitwarden_read_not_approved", "User approval is required before reading this Bitwarden item");
+        const approval = await this.prisma.bitwardenReadApproval.findUnique({ where: { id: reference } });
+        if (approval?.status === "approved" && approval.expiresAt <= new Date()) {
+          await this.prisma.bitwardenReadApproval.update({ where: { id: approval.id }, data: { status: "expired" } });
+        }
+        if (!approval || approval.botId !== request.botId || approval.channelId !== request.channelId || approval.status !== "approved" || approval.itemId?.toLowerCase() !== itemId.toLowerCase() || approval.expiresAt <= new Date())
+          throw new ApiError(403, "bitwarden_read_not_approved", "User approval is missing, expired, or for a different Bitwarden item");
+        const leaseToken = randomUUID();
+        await this.prisma.bitwardenReadApproval.create({ data: { botId: request.botId, channelId: request.channelId, sourceRunId: request.runId, itemId, title: "__lease__", hostname: String(field), status: "approved", expiresAt: new Date(Date.now() + 30_000), leaseTokenHash: createHash("sha256").update(leaseToken).digest("hex"), leaseExpiresAt: new Date(Date.now() + 30_000) } });
+        return { leaseToken };
+      }
+      if (request.tool === "ConsumeBitwardenReadLease") {
+        const input = request.arguments && typeof request.arguments === "object" ? request.arguments as Record<string, unknown> : {};
+        const leaseToken = typeof input.leaseToken === "string" ? input.leaseToken : "";
+        if (!leaseToken || leaseToken.length > 100) throw new ApiError(400, "bitwarden_lease_invalid", "The Bitwarden read lease is invalid");
+        const leaseHash = createHash("sha256").update(leaseToken).digest("hex");
+        const environment = await this.prisma.$transaction(async (tx) => {
+          const approval = await tx.bitwardenReadApproval.findFirst({ where: { leaseTokenHash: leaseHash, botId: request.botId, channelId: request.channelId, status: "approved", title: "__lease__", leaseExpiresAt: { gt: new Date() } } });
+          if (!approval) throw new ApiError(403, "bitwarden_lease_invalid", "The Bitwarden read lease is invalid or expired");
+          await tx.bitwardenReadApproval.delete({ where: { id: approval.id } });
+          return protectedPluginEnvironment(tx);
+        });
+        return { environment };
+      }
+      if (request.tool === "ConsumeBitwardenSearchLease") {
+        const input = request.arguments && typeof request.arguments === "object" ? request.arguments as Record<string, unknown> : {};
+        const leaseToken = typeof input.leaseToken === "string" ? input.leaseToken : "";
+        const leaseHash = createHash("sha256").update(leaseToken).digest("hex");
+        const environment = await this.prisma.$transaction(async (tx) => {
+          const approval = await tx.bitwardenReadApproval.findFirst({ where: { leaseTokenHash: leaseHash, botId: request.botId, channelId: request.channelId, status: "approved", itemId: null, title: "__search__", leaseExpiresAt: { gt: new Date() } } });
+          if (!approval) throw new ApiError(403, "bitwarden_lease_invalid", "The Bitwarden search lease is invalid or expired");
+          await tx.bitwardenReadApproval.delete({ where: { id: approval.id } });
+          return protectedPluginEnvironment(tx);
+        });
+        return { environment };
+      }
       if (run.origin === "routine" && AUTOMATION_PARENT_ONLY_TOOLS.has(request.tool)) {
         throw new ApiError(403, "automation_tool_forbidden", AUTOMATION_RUN_VISIBLE_TRANSCRIPT_BLOCKED);
       }

@@ -80,17 +80,24 @@ const validateFields = (fields: readonly PluginField[], allowEnvironment = false
       throw new Error(`Credential setup fields must use secret: true: ${field.key}`);
     if (field.secret && field.default !== undefined)
       throw new Error(`Secret defaults are not allowed: ${field.key}`);
+    if (field.format !== undefined && (field.format !== "https-origin" || (field.type ?? "string") !== "string"))
+      throw new Error(`Invalid setup field format: ${field.key}`);
+    if (field.preserveWhitespace !== undefined &&
+        (typeof field.preserveWhitespace !== "boolean" || (field.type ?? "string") !== "string"))
+      throw new Error(`Invalid whitespace option: ${field.key}`);
     if (field.environment !== undefined) {
       if (
         !allowEnvironment ||
-        !field.secret ||
         (field.type ?? "string") !== "string" ||
         !isAllowedEnvironmentName(field.environment) ||
         environment.has(field.environment)
       )
-        throw new Error(`Environment setup fields must be unique plugin-level secrets: ${field.key}`);
+        throw new Error(`Environment setup fields must be unique plugin-level strings: ${field.key}`);
       environment.add(field.environment);
     }
+    if (field.protected !== undefined &&
+        (typeof field.protected !== "boolean" || field.environment === undefined))
+      throw new Error(`Protected fields must be runtime environment fields: ${field.key}`);
     if (
       field.enum &&
       (!Array.isArray(field.enum) ||

@@ -1,6 +1,6 @@
 # 需求文档 - Bitwarden 与 Vaultwarden 凭据插件接入
 
-状态：草案
+状态：实施中（2026-11-13 复核修订）
 
 父规格：[Spec 005：插件扩展体系](../005-插件扩展体系/requirements.md)
 
@@ -69,10 +69,10 @@ Vaultwarden 提供与 Bitwarden 客户端生态兼容的自托管密码库。用
 
 1. WHEN 用户配置插件 THEN System SHALL 支持 `BW_SERVER_URL`、`BW_EMAIL`、`BW_CLIENT_ID`、`BW_CLIENT_SECRET` 和 `BW_MASTER_PASSWORD` 五个运行字段。
 2. WHEN 用户使用 Vaultwarden THEN System SHALL 允许配置自托管 HTTPS URL，不得把 server URL 固定为 Bitwarden Cloud。
-3. WHEN 用户输入 server URL THEN System SHALL 要求绝对 HTTP(S) URL，拒绝包含用户名、密码、fragment 或控制字符的值。
+3. WHEN 用户输入 server URL THEN System SHALL 要求 HTTPS origin（根 `/` 可选），拒绝 path、query、fragment、用户名、密码或控制字符。
 4. WHEN 用户输入 API Key 或主密码 THEN System SHALL 以密码输入控件提交，数据库和公开插件视图不得返回明文。
 5. WHEN 用户替换任一运行字段 THEN System SHALL 只更新对应字段，不清空其他已保存字段。
-6. WHEN 用户打开已安装插件详情 THEN System SHALL 只显示每个字段的 Saved/Not set 状态，不回显 server URL 以外的 secret 值；普通 runtime field 可显示为文本配置但不得出现在公开 Bot prompt 中。
+6. WHEN 用户打开已安装插件详情 THEN System SHALL 只显示每个字段的 Saved/Not set 状态，所有 runtime field 均不回显其值；普通 runtime field 可显示为文本配置但不得出现在公开 Bot prompt 中。
 7. WHEN 插件安装配置不完整 THEN System SHALL 阻止声称插件已准备好，并在 Bot 使用时报告缺失字段名称而不是尝试空值登录。
 
 ### 需求 3：插件运行时字段传递
@@ -83,8 +83,8 @@ Vaultwarden 提供与 Bitwarden 客户端生态兼容的自托管密码库。用
 
 1. WHEN 插件字段声明 `environment` 且类型为 string THEN SDK SHALL 允许其 `secret` 为 true 或 false，但同一环境变量名仍必须在插件目录内唯一。
 2. WHEN server 保存插件运行字段 THEN System SHALL 继续使用现有插件级 process secret 存储和 owner key，不新增凭据表。
-3. WHEN Bot 或受支持的子机器人执行 Shell THEN System SHALL 注入当前已安装插件声明的 runtime fields，并按现有个人、插件、Bot 优先级处理同名变量。
-4. WHEN Shell 或 Read 返回内容 THEN System SHALL 继续对插件 secret 值做流式脱敏；普通 server URL 和 email 可以按非 secret 字段处理。
+3. WHEN Bot 或受支持的子机器人执行普通 Shell THEN System SHALL 注入非 protected runtime fields，并按现有个人、插件、Bot 优先级处理同名变量；Bitwarden protected fields SHALL NOT be included.
+4. WHEN Shell 或 Read 返回内容 THEN System SHALL 继续对实际注入的插件 secret 值做流式脱敏；Bitwarden protected fields 只进入服务端授权的 Computer 私有 wrapper 进程。
 5. WHEN 插件卸载、更新删除字段或替换字段 THEN System SHALL 清理已经不再声明的环境变量。
 6. WHEN 两个插件声明相同的 runtime environment name THEN System SHALL 拒绝后安装或更新，并返回可理解的冲突错误。
 
@@ -96,8 +96,8 @@ Vaultwarden 提供与 Bitwarden 客户端生态兼容的自托管密码库。用
 
 1. WHEN Bitwarden Skill 第一次运行 THEN System SHALL 使用插件内脚本安装固定版本的 CLI，并校验下载内容的 SHA-256 或等价完整性证明。
 2. WHEN 当前平台不受支持、安装器依赖缺失或校验失败 THEN System SHALL 停止执行，不运行未经验证的 CLI，并返回可操作错误。
-3. WHEN Bot 请求读取凭据 THEN Skill SHALL 为本次读取准备 server 配置、API Key 登录、Vault 解锁和同步流程。
-4. WHEN 登录或解锁成功 THEN Skill SHALL 只在当前命令链路中使用会话信息，不把 session key 保存到插件包、工作区或 OpenTeam 数据库。
+3. WHEN Bot 请求读取凭据 THEN Skill SHALL 为本次读取准备 server 配置、Personal API Key 登录、Vault 解锁和同步流程，并将 `BW_CLIENT_ID` / `BW_CLIENT_SECRET` 映射到 CLI 的 `BW_CLIENTID` / `BW_CLIENTSECRET`；System SHALL 明确说明账号邮箱和主密码不能推导或替代 Personal API Key 字段。
+4. WHEN 登录或解锁成功 THEN Skill SHALL 只在当前命令链路中使用 session key，不保存到插件包、工作区或 OpenTeam 数据库；CLI 必需的 token 和加密 Vault 只在独立临时目录中存在，结束后清理。
 5. WHEN CLI 需要写入配置文件 THEN System SHALL 使用 Bot 私有目录或等价隔离机制，不复用其他 Bot 或桌面用户的 Bitwarden CLI 配置。
 6. WHEN 用户轮换 API Key 或主密码 THEN System SHALL 允许覆盖对应字段，并在下一次读取时使用新值。
 7. WHEN Vaultwarden 服务不可达或同步失败 THEN System SHALL 不使用旧的、不确定新鲜度的凭据结果冒充本次成功读取。
@@ -112,9 +112,12 @@ Vaultwarden 提供与 Bitwarden 客户端生态兼容的自托管密码库。用
 2. WHEN 存在一个精确 hostname 匹配项 THEN Skill SHALL 选择该 item，并只读取完成任务所需的 username、password 或 TOTP 字段。
 3. WHEN 存在多个候选项 THEN Skill SHALL 优先使用完整 URI 和 hostname 匹配；仍然不唯一时只返回不含 secret 的标题、hostname 和 item 标识摘要，要求用户明确选择或报告歧义。
 4. WHEN 用户提供显式 item id THEN Skill SHALL 读取该 item，但仍需校验其类型为 Login 并拒绝读取不支持的项目类型。
-5. WHEN 用户要求直接查看密码、用户名或 TOTP THEN Bot SHALL 可以直接调用包装脚本并把读取结果用于当前任务；该值可以进入当前 Bot 的模型上下文，行为与现有 1Password Skill 一致。
-6. WHEN 匹配项不存在、类型不正确或字段为空 THEN Skill SHALL 返回明确缺失原因，不猜测其他项目，也不把搜索结果中的其他密码暴露给模型。
-7. WHEN 读取完成 THEN Skill SHALL 不把完整 item JSON、未请求字段或 Vault 中其他项目写入用户消息、插件活动日志或诊断日志。
+5. WHEN 用户要求直接查看密码、用户名或 TOTP THEN Bot SHALL 先发送聊天问题 widget 请求读取所选 item 的授权，只有获得批准后才能调用包装脚本并在当前任务中使用结果；该值可以进入当前 Bot 模型上下文，行为与现有 1Password Skill 一致。
+6. WHEN 本次任务首次读取某个 item 的字段 THEN 授权 SHALL 在本次任务剩余时间内适用于该 item；更换 item 必须重新授权，已授权 item 的后续字段不重复询问。
+7. WHEN `ReadBitwardenCredential` is called without a matching server-side approved `BitwardenReadApproval` and current-task reference THEN Server SHALL reject the call before exposing protected runtime fields, regardless of Skill instructions or model arguments.
+8. WHEN the user dismisses, denies, or an approval lease expires THEN Server SHALL reject every credential read for that approval and SHALL NOT inject `BW_*` into a normal Shell.
+9. WHEN 匹配项不存在、类型不支持或字段为空 THEN Skill SHALL 返回明确缺失原因，不猜测其他项目，也不暴露其他搜索结果中的密码。
+10. WHEN 读取完成 THEN Skill SHALL 不把完整 item JSON、未请求字段或 Vault 中其他项目写入用户消息、插件活动日志或诊断日志。
 
 ### 需求 6：浏览器与桌面登录工作流
 
@@ -140,7 +143,7 @@ Vaultwarden 提供与 Bitwarden 客户端生态兼容的自托管密码库。用
 3. WHEN 插件脚本、CLI stderr、Shell 标题或错误消息产生文本 THEN SHALL 不包含 API Client Secret、主密码、session key 或完整 credential value。
 4. WHEN 用户保存插件配置 THEN System SHALL 将 secret 字段保存为插件级 process secret，并且公开设置接口只返回字段是否已配置。
 5. WHEN 插件被多个 Bot 使用 THEN System SHALL 遵守现有插件级环境语义，所有 Bot 可使用同一组配置；安装说明 SHALL 要求使用专用账号和最小 Collection 权限。
-6. WHEN 用户直接要求输出凭据 THEN Bot SHALL 遵守当前任务授权和现有安全提示；插件本身不得把读取到的值自动发送到外部服务或写入持久化记录。
+6. WHEN 用户直接要求输出凭据 THEN Bot SHALL 遵守当前任务授权和现有安全提示；插件本身不得主动追加凭据日志或发送到任务外部目标；现有 Shell 和会话历史可能保存 direct read 值，与 1Password 一致。
 7. WHEN server 使用自签名或不受信任 TLS 证书 THEN System SHALL 报告证书错误并指导用户配置受信任证书，不提供跳过证书验证开关。
 
 ### 需求 8：错误分类、诊断与恢复
@@ -152,8 +155,8 @@ Vaultwarden 提供与 Bitwarden 客户端生态兼容的自托管密码库。用
 1. WHEN 配置缺失 THEN System SHALL 指出缺失的字段名，不回显字段值。
 2. WHEN server URL 无效 THEN System SHALL 在配置保存阶段拒绝，并返回字段级错误。
 3. WHEN Bot computer 无法解析或连接 server THEN System SHALL 区分 DNS、连接拒绝、超时和 TLS 错误。
-4. WHEN Bitwarden CLI 登录失败 THEN System SHALL 区分 API Key 无效、账号不存在、服务端拒绝和需要交互式认证的情况。
-5. WHEN Vault 解锁失败 THEN System SHALL 区分主密码错误、Vault 锁定状态和 CLI 内部错误。
+4. WHEN Bitwarden CLI 登录失败 THEN System SHALL 返回 login 阶段错误，仅在 CLI 明确返回时细分交互认证或网络原因，不推断账号存在性。
+5. WHEN Vault 解锁失败 THEN System SHALL 返回 unlock 阶段错误，不把未知 CLI 故障断言为主密码错误。
 6. WHEN 同步失败 THEN System SHALL 不返回本次未验证的新凭据，并保留可重试的错误状态。
 7. WHEN 读取项失败 THEN System SHALL 区分未找到、多个匹配、项目类型不支持、字段缺失和权限不足。
 8. WHEN 错误被写入日志或插件活动 THEN System SHALL 只写错误类别、目标 server origin、CLI 退出状态和安全摘要，不写完整 URL path、Authorization header 或凭据值。
@@ -202,9 +205,9 @@ Vaultwarden 提供与 Bitwarden 客户端生态兼容的自托管密码库。用
 
 ### 非功能需求 3：安全
 
-1. 主密码、Client Secret、session key 和凭据值不得进入插件包、生成 registry、环境示例文件、Git 记录或公开配置响应。
+1. 主密码、Client Secret、session key 和真实凭据值不得进入插件包、生成 registry、环境示例文件、Git 记录或公开配置响应。
 2. SecretRedactor 必须覆盖完整值、跨 chunk 值和命令 stderr；测试必须覆盖包含换行和 UTF-8 字符的 secret。
-3. server URL 和 email 虽然可以是非 secret runtime field，但不得自动注入主模型的系统 prompt 或用户信息；它们只在执行 CLI 时进入进程环境。
+3. server URL 和 email 虽然可以是非 secret runtime field，但必须与其它 Bitwarden protected runtime field 一样，不得进入普通 Shell、MCP process、主模型系统 prompt 或用户信息；它们只在服务端授权的 Computer 内部 CLI 进程环境中出现。
 4. 插件文档必须建议专用 Vaultwarden 用户和最小 Collection 权限，并说明 Bot 读取的凭据可能进入当前模型上下文。
 
 ### 非功能需求 4：可维护性
@@ -223,3 +226,7 @@ Vaultwarden 提供与 Bitwarden 客户端生态兼容的自托管密码库。用
 - Vaultwarden 真实实例或等价 fixture 的登录、解锁、同步和读取流程通过验收。
 - 现有 1Password 相关测试和行为保持不变。
 - requirements、design、tasks 和兼容性补充文档可以逐项追踪。
+
+## 实施约定
+
+主密码前后空白原样保留；CLI 输出统一 JSON；网站只按完整 URI/exact hostname 匹配，标题查询显式使用 `--title`；不自动回退域名。只读与脱敏实际边界、默认决策及验证映射见 [design.md](design.md) §8.2 和 [tasks.md](tasks.md)。
