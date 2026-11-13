@@ -1,8 +1,11 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { config } from "dotenv";
 import { Client } from "pg";
 import { applyRawSchema } from "./apply-raw-schema";
+
+config({ path: join(import.meta.dirname, "..", "..", "..", ".env"), quiet: true });
 
 const connectionString =
   process.env.DATABASE_URL ?? "postgresql://outcomego:outcomego@127.0.0.1:5432/outcomego";
@@ -12,6 +15,7 @@ const schemaFingerprint = createHash("sha256")
   .update("\0")
   .update(await readFile(join(import.meta.dirname, "..", "prisma", "sql", "raw-schema.sql")))
   .digest("hex");
+const READY_PREFIX = `OutcomeGo schema ready: ${SCHEMA_VERSION}:`;
 const INITIALIZING_MARKER = `OutcomeGo schema initializing: ${SCHEMA_VERSION}:${schemaFingerprint}`;
 const READY_MARKER = `OutcomeGo schema ready: ${SCHEMA_VERSION}:${schemaFingerprint}`;
 
@@ -50,9 +54,10 @@ const assertFreshOrCurrentDatabase = async (): Promise<"initialize" | "ready"> =
     }
     if (schemaComment === READY_MARKER && existing.rows[0]?.has_objects) return "ready";
     if (schemaComment === INITIALIZING_MARKER) return "initialize";
+    if (schemaComment?.startsWith(READY_PREFIX) && existing.rows[0]?.has_objects) return "initialize";
     if (existing.rows[0]?.has_objects) {
       throw new Error(
-        "Database does not match the current OutcomeGo schema. In-place database upgrades are not supported; create a fresh database and import a validated outcomego-v1 backup."
+        "Database is not a recognized OutcomeGo schema. Refusing to modify it; create a fresh database and import a validated outcomego-v1 backup."
       );
     }
     throw new Error("Database schema marker does not match the current OutcomeGo schema. Create a fresh database for this version.");

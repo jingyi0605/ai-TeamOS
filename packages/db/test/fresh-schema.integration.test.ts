@@ -81,20 +81,25 @@ test.skipIf(!url)("a fresh database receives the complete current schema and can
     expect(tablesAfter.rows[0]?.count).toBe(tablesBefore.rows[0]?.count);
 
     await db.query("COMMENT ON SCHEMA public IS 'OutcomeGo schema ready: outcomego-v1:outdated'");
-    const blocked = Bun.spawn(["bun", "scripts/deploy-schema.ts"], {
+    const upgraded = Bun.spawn(["bun", "scripts/deploy-schema.ts"], {
       cwd: join(import.meta.dirname, ".."),
       env: { ...process.env, DATABASE_URL: target.toString() },
       stdin: "ignore",
       stdout: "pipe",
       stderr: "pipe",
     });
-    const [blockedStatus, blockedStdout, blockedStderr] = await Promise.all([
-      blocked.exited,
-      new Response(blocked.stdout).text(),
-      new Response(blocked.stderr).text(),
+    const [upgradedStatus, upgradedStdout, upgradedStderr] = await Promise.all([
+      upgraded.exited,
+      new Response(upgraded.stdout).text(),
+      new Response(upgraded.stderr).text(),
     ]);
-    expect(blockedStatus, `${blockedStdout}\n${blockedStderr}`).not.toBe(0);
-    expect(`${blockedStdout}\n${blockedStderr}`).toContain("In-place database upgrades are not supported");
+    expect(upgradedStatus, `${upgradedStdout}\n${upgradedStderr}`).toBe(0);
+    const upgradedMarker = await db.query<{ comment: string }>(`
+      SELECT obj_description(n.oid, 'pg_namespace') AS comment
+      FROM pg_namespace n
+      WHERE n.nspname = current_schema()
+    `);
+    expect(upgradedMarker.rows[0]?.comment).toMatch(/^OutcomeGo schema ready: outcomego-v1:[0-9a-f]{64}$/);
   } finally {
     await db.end().catch(() => {});
     await admin.query(`DROP DATABASE IF EXISTS "${name}" WITH (FORCE)`);
@@ -128,7 +133,7 @@ test.skipIf(!url)("an unmarked nonempty database is rejected without changing it
       new Response(child.stderr).text(),
     ]);
     expect(status).not.toBe(0);
-    expect(`${stdout}\n${stderr}`).toContain("In-place database upgrades are not supported");
+    expect(`${stdout}\n${stderr}`).toContain("Database is not a recognized OutcomeGo schema");
 
     const tables = await db.query<{ table_name: string }>(`
       SELECT table_name FROM information_schema.tables

@@ -1,6 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { config } from "dotenv";
 import { Client } from "pg";
+
+config({ path: join(import.meta.dirname, "..", "..", "..", ".env"), quiet: true });
 
 /**
  * Apply the database objects Prisma's schema language cannot express.
