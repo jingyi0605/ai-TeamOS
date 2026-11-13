@@ -56,11 +56,11 @@ test("malformed or non-boolean saved permission never enables sharing", async ()
     expect(await store.allowed("https://host.test", "deployment-a")).toBe(false);
   }
 });
-test("unsupported platform and disconnected desktop cannot grant permission", async () => {
+test("Windows desktop is recognized as a supported network provider platform", async () => {
   const { store } = await fixture();
   const controller = new DesktopBrowserNetwork("machine", store, "win32");
   expect(controller.status()).toMatchObject({
-    supported: false,
+    supported: true,
     sharingAllowed: false,
     providing: false,
   });
@@ -78,7 +78,7 @@ test("sign-out closes sharing and deployment identity changes never inherit an o
         ? Response.json({ deploymentId: identity })
         : new Response("not connected", { status: 503 }),
   });
-  const controller = new DesktopBrowserNetwork("machine", store, "darwin");
+  const controller = new DesktopBrowserNetwork("machine", store, "win32");
   const connection = { serverUrl: server.url.origin, credential: "fixture", connectionId: "one" };
   try {
     await controller.configure(connection);

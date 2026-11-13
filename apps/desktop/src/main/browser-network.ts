@@ -88,7 +88,7 @@ export class DesktopBrowserNetwork {
     private readonly platform = process.platform
   ) {}
   private supported() {
-    return this.platform === "darwin" || this.platform === "linux";
+    return this.platform === "darwin" || this.platform === "linux" || this.platform === "win32";
   }
   async configure(connection: DesktopEnrollmentConnection | null) {
     const generation = ++this.generation;
