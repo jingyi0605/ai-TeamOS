@@ -13,11 +13,18 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-state_dir=${OUTCOMEGO_DEBUG_STATE_DIR:-$HOME/.outcomego-dev}
+if [[ -n "${OUTCOMEGO_DEBUG_STATE_DIR:-}" ]]; then
+  state_dir=$OUTCOMEGO_DEBUG_STATE_DIR
+elif [[ -f "$HOME/.outcomego-dev/smb-password" ]]; then
+  state_dir=$HOME/.outcomego-dev
+else
+  # The current shared debug host still uses the pre-rename local state directory.
+  state_dir=$HOME/.openteam-dev
+fi
 mount_point=$state_dir/mnt
 remote_host=${OUTCOMEGO_DEBUG_REMOTE_HOST:-10.255.0.45}
 remote_user=${OUTCOMEGO_DEBUG_REMOTE_USER:-ubuntu}
-share=${OUTCOMEGO_DEBUG_SHARE:-outcomego-debug}
+share=${OUTCOMEGO_DEBUG_SHARE:-openteam-debug}
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -57,7 +64,8 @@ check() {
     && pass "workspace and agent-data directories exist" || fail "workspace/agent-data path missing"
 
   local health
-  health=$(curl -s -m 8 "${OUTCOMEGO_COMPUTER_URL%/}/health" -H "authorization: Bearer ${OUTCOMEGO_CONTROL_TOKEN}") || true
+  health=$(curl --noproxy '*' -s -m 8 "${OUTCOMEGO_COMPUTER_URL%/}/health" \
+    -H "authorization: Bearer ${OUTCOMEGO_CONTROL_TOKEN}") || true
   [[ $health == *'"status":"ready"'* ]] && pass "computer ready at $OUTCOMEGO_COMPUTER_URL" \
     || fail "computer not ready at $OUTCOMEGO_COMPUTER_URL"
   [[ $health == *'"authenticated":false'* ]] && echo "note  computer has no model login yet (see outcomego-pi-auth)"
@@ -73,9 +81,9 @@ check() {
   if [[ -n $mac_ip ]]; then
     local configured
     configured=$(ssh -o BatchMode=yes -o ConnectTimeout=6 "$remote_user@$remote_host" \
-      "sed -n 's/^OUTCOMEGO_DEBUG_SERVER_URL=//p' ~/outcomego-debug/.env" 2>/dev/null || true)
+      "awk -F= '/^(OUTCOMEGO|AITEAMOS)_DEBUG_SERVER_URL=/{print \$2; exit}' ~/openteam-debug/.env" 2>/dev/null || true)
     if [[ $configured == "http://$mac_ip:$port" ]]; then pass "computer calls back to $configured"
-    else fail "this Mac is $mac_ip but the computer calls ${configured:-<unknown>}; update ~/outcomego-debug/.env and Samba 'hosts allow', then restart the computer"; fi
+    else fail "this Mac is $mac_ip but the computer calls ${configured:-<unknown>}; update ~/openteam-debug/.env and Samba 'hosts allow', then restart the computer"; fi
   fi
   listener=$(lsof -nP -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | awk 'NR==2{print $1" (pid "$2")"}' || true)
   [[ -z $listener ]] && pass "port $port is free" || echo "note  port $port is in use by $listener"
