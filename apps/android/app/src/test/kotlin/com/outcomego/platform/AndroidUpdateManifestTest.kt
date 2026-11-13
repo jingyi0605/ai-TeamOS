@@ -5,19 +5,9 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import java.security.KeyPairGenerator
-import java.security.Signature
-import java.security.spec.ECGenParameterSpec
-import java.util.Base64
 
 class AndroidUpdateManifestTest {
-    private val fixtureKeyPair = KeyPairGenerator.getInstance("EC").apply {
-        initialize(ECGenParameterSpec("secp256r1"))
-    }.generateKeyPair()
-    private val fixturePublicKeyDerHex = fixtureKeyPair.public.encoded.joinToString("") {
-        "%02x".format(it.toInt() and 0xff)
-    }
-    private val unsignedManifest = AndroidUpdateManifest(
+    private val validManifest = AndroidUpdateManifest(
         version = "1.2.3",
         versionCode = 10203,
         applicationId = "com.outcomego.android",
@@ -25,16 +15,7 @@ class AndroidUpdateManifestTest {
         sizeBytes = 12345,
         sha256 = "0000000000000000000000000000000000000000000000000000000000000000",
         certificateSha256 = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-        signatureBase64 = "fixture-signature",
-    )
-    private val validManifest = unsignedManifest.copy(
-        signatureBase64 = Base64.getEncoder().encodeToString(
-            Signature.getInstance("SHA256withECDSA").run {
-                initSign(fixtureKeyPair.private)
-                update(AndroidUpdateManifestVerifier.canonicalPayload(unsignedManifest).toByteArray(Charsets.UTF_8))
-                sign()
-            },
-        ),
+        signatureBase64 = "MEQCIGQuRBkzvqnBLcKsUkNTK8LyMBh1fErSnShtwPVdgYmCAiBYpmfTiSD9IIcT9t/a3DyUJbaMsAcDdLBHE7PQeBb2tA==",
     )
 
     @Test
@@ -56,7 +37,6 @@ class AndroidUpdateManifestTest {
         val parsed = AndroidUpdateManifestVerifier.parseAndVerify(
             Json.encodeToString(validManifest),
             "com.outcomego.android",
-            fixturePublicKeyDerHex,
         )
         assertEquals(validManifest, parsed)
     }
@@ -68,7 +48,6 @@ class AndroidUpdateManifestTest {
             AndroidUpdateManifestVerifier.parseAndVerify(
                 Json.encodeToString(tampered),
                 "com.outcomego.android",
-                fixturePublicKeyDerHex,
             )
         }
     }
@@ -80,7 +59,6 @@ class AndroidUpdateManifestTest {
             AndroidUpdateManifestVerifier.parseAndVerify(
                 Json.encodeToString(invalidUrl),
                 "com.outcomego.android",
-                fixturePublicKeyDerHex,
             )
         }
         val invalidVersion = validManifest.copy(version = "1.2")
@@ -88,7 +66,6 @@ class AndroidUpdateManifestTest {
             AndroidUpdateManifestVerifier.parseAndVerify(
                 Json.encodeToString(invalidVersion),
                 "com.outcomego.android",
-                fixturePublicKeyDerHex,
             )
         }
         val invalidChecksum = validManifest.copy(sha256 = "not-a-checksum")
@@ -96,7 +73,6 @@ class AndroidUpdateManifestTest {
             AndroidUpdateManifestVerifier.parseAndVerify(
                 Json.encodeToString(invalidChecksum),
                 "com.outcomego.android",
-                fixturePublicKeyDerHex,
             )
         }
     }
