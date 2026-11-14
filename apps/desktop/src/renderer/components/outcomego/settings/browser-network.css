@@ -11,11 +11,36 @@
 .bn-source {
   display: flex;
   align-items: center;
-  gap: 10px;
   min-height: 52px;
   padding-block: 8px;
   border-top: 1px solid var(--border);
   font-size: 13px;
+}
+.bn-source-button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 40px;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+}
+.bn-source-button:not(:disabled) {
+  cursor: pointer;
+}
+.bn-source-button:not(:disabled):hover {
+  background: var(--bn-hover, rgba(128, 128, 128, 0.1));
+}
+.bn-source-button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.bn-source-button:disabled {
+  opacity: 0.72;
 }
 .bn-rank {
   width: 10px;

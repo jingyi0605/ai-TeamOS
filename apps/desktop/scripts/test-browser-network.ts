@@ -1,5 +1,5 @@
 import { createServer } from "vite";
-import { chromium, type Page } from "../../computer/node_modules/playwright-core";
+import { chromium } from "../../computer/node_modules/playwright-core";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 const root = resolve(import.meta.dirname, "..");
@@ -18,29 +18,16 @@ const assert = (value: unknown, message: string) => {
   if (!value) throw Error(message);
   checks++;
 };
-async function drag(page: Page, from: string, to: string) {
-  const source = await page.locator(`[data-network-source="${from}"] .bn-handle`).boundingBox();
-  const target = await page.locator(`[data-network-source="${to}"] .bn-handle`).boundingBox();
-  if (!source || !target) throw Error("Missing drag handle");
-  await page.mouse.move(source.x + source.width / 2, source.y + source.height / 2);
-  await page.mouse.down();
-  await page.mouse.move(
-    source.x + source.width / 2,
-    source.y + source.height / 2 + (target.y > source.y ? 8 : -8),
-    { steps: 4 }
-  );
-  await page.waitForTimeout(160);
-  await page.mouse.move(target.x + target.width / 2, target.y + target.height / 2, { steps: 15 });
-  await page.waitForTimeout(250);
-  await page.mouse.up();
-  await page.waitForTimeout(300);
-}
 try {
   const page = await context.newPage();
   page.setDefaultTimeout(8000);
   const errors: string[] = [];
+  const dialogs: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  page.on("dialog", (dialog) => void dialog.accept());
+  page.on("dialog", (dialog) => {
+    dialogs.push(dialog.message());
+    void dialog.accept();
+  });
   await page.addInitScript(() => {
     (window as any).networkFixture = {
       view: {
@@ -98,17 +85,7 @@ try {
       .locator("[data-network-source]")
       .evaluateAll((rows) => rows.map((row) => row.getAttribute("data-network-source")));
   const status = (text: string) => page.getByRole("status").filter({ hasText: text }).waitFor();
-  const apply = () => page.getByRole("button", { name: "Apply", exact: true }).click();
-  const keyboardMove = async (name: string, arrow: string, cancel = false) => {
-    await page.getByRole("button", { name: `Reorder ${name}`, exact: true }).focus();
-    await page.keyboard.press("Space");
-    await page.waitForTimeout(150);
-    await page.keyboard.press(arrow);
-    await page.waitForTimeout(200);
-    await page.keyboard.press(cancel ? "Escape" : "Space");
-    await page.waitForTimeout(300);
-  };
-  await page.getByRole("list", { name: "Connection priority" }).waitFor();
+  await page.getByRole("list", { name: "Network exits" }).waitFor();
   assert((await page.getByLabel("Browser network source").count()) === 0, "always ranked");
   assert(
     JSON.stringify(await sources()) === JSON.stringify(["office", "server"]),
@@ -178,15 +155,14 @@ try {
     (await page.evaluate(() => (window as any).networkFixture.mutations.length)) === 0,
     "no extra Apply for opt-in"
   );
-  await drag(page, "home", "office");
-  assert((await sources())[0] === "home", "dnd-kit pointer reorders");
+  await page.getByRole("button", { name: "Use MacBook Air", exact: true }).click();
+  await status("Using MacBook Air");
+  assert((await sources())[0] === "home", "selecting a source moves it first");
   assert(
     (await page.evaluate(() => (window as any).networkFixture.view.runtime.activeMachineId)) ===
-      "office",
-    "draft does not change active connection"
+      "home",
+    "selecting a source changes the active connection immediately"
   );
-  await apply();
-  await status("Using MacBook Air");
   assert(
     (await page.getByLabel("Latency 42 milliseconds", { exact: true }).count()) === 0,
     "route change clears old speed results"
@@ -210,21 +186,17 @@ try {
       .isVisible(),
     "stopped device status changes"
   );
-  await drag(page, "server", "office");
-  assert(
-    JSON.stringify(await sources()) === JSON.stringify(["home", "server", "office"]),
-    "server pointer reorder"
-  );
-  await apply();
+  await page.getByRole("button", { name: "Use Server connection", exact: true }).click();
   await status("Using the server connection");
-  await keyboardMove("Server connection", "ArrowUp", true);
   assert(
-    JSON.stringify(await sources()) === JSON.stringify(["home", "server", "office"]),
-    "Escape cancels keyboard reorder"
+    JSON.stringify(await sources()) === JSON.stringify(["server", "home", "office"]),
+    "selecting the server moves it first"
   );
-  await keyboardMove("Server connection", "ArrowUp");
-  assert((await sources())[0] === "server", "keyboard reorders server first");
-  await apply();
+  assert(
+    (await page.evaluate(() => (window as any).networkFixture.view.runtime.activeMachineId)) ===
+      null,
+    "selecting the server immediately activates the server route"
+  );
   await page.getByRole("checkbox").check();
   await status("Using the server connection");
   assert(
@@ -232,22 +204,18 @@ try {
     "reenabling never duplicates"
   );
   assert((await sources())[0] === "server", "reenabling respects server first");
-  await keyboardMove("Server connection", "ArrowDown");
-  await apply();
-  await status("Using MacBook Air");
-  await keyboardMove("Mac mini", "ArrowUp");
   await page.evaluate(() => {
     const f = (window as any).networkFixture;
     f.view.settings.sourceOrder = ["server", "home", "office"];
     f.view.settings.revision++;
     (window as any).refreshNetworkFixture();
   });
-  await apply();
+  await page.getByRole("button", { name: "Use Mac mini", exact: true }).click();
   await page.getByRole("alert").filter({ hasText: "connection changed" }).waitFor();
   assert((await sources())[0] === "server", "stale draft refresh preserves concurrent edit");
   assert(
-    (await page.getByRole("button", { name: "Apply", exact: true }).count()) === 0,
-    "clean state has no extra actions"
+    dialogs.every((message) => !message.includes("Save this connection priority")),
+    "priority changes have no confirmation dialog"
   );
   await page.evaluate(() => {
     const f = (window as any).networkFixture;

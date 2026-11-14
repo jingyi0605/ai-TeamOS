@@ -59,15 +59,6 @@ export function BrowserNetworkIndicator() {
     if (!view || busy || sourceId === activeSource) return;
     const source = sources.find((candidate) => candidate.id === sourceId);
     if (!source?.available) return;
-    if (
-      !window.confirm(
-        t(
-          "Save this connection priority? Changing the active connection interrupts downloads and network connections across the bot computer. Apps stay open; requests are not replayed."
-        )
-      )
-    )
-      return;
-
     setBusy(true);
     setError(null);
     try {

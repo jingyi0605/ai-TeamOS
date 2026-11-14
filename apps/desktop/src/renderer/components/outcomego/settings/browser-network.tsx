@@ -8,11 +8,9 @@ import type {
 } from "@outcomego/contracts/browser-network";
 import { clientErrorMessage } from "@outcomego/product-core/redaction";
 import { api } from "../../../client/outcomego-api";
-import { GripVertical, Laptop, Monitor, Server } from "lucide-react";
-import { DragDropProvider, KeyboardSensor, PointerSensor } from "@dnd-kit/react";
-import { isSortable, useSortable } from "@dnd-kit/react/sortable";
+import { Laptop, Monitor, Server } from "lucide-react";
 import { PrivateSettingValue } from "./private-value";
-import { SectionLabel, SettingsGroup, settingsPrimaryButton, settingsSecondaryButton } from "./ui";
+import { SectionLabel, SettingsGroup, settingsSecondaryButton } from "./ui";
 
 import { browserNetworkLabel } from "../../../lib/browser-network-status";
 import { useWindowVisible } from "../../../hooks/use-window-active";
@@ -29,8 +27,6 @@ export function BrowserNetworkSettings() {
   const [egressFailed, setEgressFailed] = useState(false);
   const [localMachineId, setLocalMachineId] = useState<string | null>(null);
   const [sharing, setSharing] = useState<NetworkSharingStatus | null>(null);
-  const [order, setOrder] = useState<string[] | null>(null);
-  const [draftRevision, setDraftRevision] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -112,46 +108,29 @@ export function BrowserNetworkSettings() {
       clearInterval(timer);
     };
   }, [routeKey, view?.runtime.state, visible]);
-  const savedOrder = view?.settings.sourceOrder?.length ? view.settings.sourceOrder : ["server"];
-  const ranked = order ?? savedOrder;
-  const dirty = !!view && JSON.stringify(ranked) !== JSON.stringify(savedOrder);
-  const move = (from: string, to: string) => {
-    const next = [...ranked],
-      start = next.indexOf(from),
-      end = next.indexOf(to);
-    if (start < 0 || end < 0 || start === end) return;
-    next.splice(start, 1);
-    next.splice(end, 0, from);
-    setDraftRevision((revision) => revision ?? view?.settings.revision ?? null);
-    setOrder(next);
-  };
-  const apply = async () => {
-    if (!view || !dirty) return;
-    if (
-      !window.confirm(
-        t(
-          "Save this connection priority? Changing the active connection interrupts downloads and network connections across the bot computer. Apps stay open; requests are not replayed."
-        )
-      )
-    )
-      return;
+  const ranked = view?.settings.sourceOrder?.length ? view.settings.sourceOrder : ["server"];
+  const activeId = view?.runtime.state === "server" ? "server" : view?.runtime.activeMachineId;
+  const ready = view && ["ready", "server"].includes(view.runtime.state);
+  const selectSource = async (sourceId: string) => {
+    if (!view || busy || sourceId === activeId) return;
+    const device = view.devices.find((candidate) => candidate.machineId === sourceId);
+    const available =
+      sourceId === "server" ||
+      (!!device?.enabled && (device.working ?? (device.connected && device.sharingAllowed)));
+    if (!available) return;
     setBusy(true);
     setError(null);
     try {
       setView(
         await api.updateBrowserNetwork({
-          expectedRevision: draftRevision ?? view.settings.revision,
+          expectedRevision: view.settings.revision,
           mode: "ranked",
           machineId: null,
-          sourceOrder: ranked,
+          sourceOrder: [sourceId, ...view.settings.sourceOrder.filter((candidate) => candidate !== sourceId)],
         })
       );
-      setOrder(null);
-      setDraftRevision(null);
     } catch (e) {
       setError(clientErrorMessage(e, t("Could not change computer connection")));
-      setOrder(null);
-      setDraftRevision(null);
       try {
         setView(await api.browserNetwork());
       } catch {
@@ -184,8 +163,6 @@ export function BrowserNetworkSettings() {
       setBusy(false);
     }
   };
-  const activeId = view?.runtime.state === "server" ? "server" : view?.runtime.activeMachineId;
-  const ready = view && ["ready", "server"].includes(view.runtime.state);
   return (
     <section className="bn-network" data-settings-anchor="browser-network">
       <SectionLabel>{t("Computer network")}</SectionLabel>
@@ -193,46 +170,32 @@ export function BrowserNetworkSettings() {
         <p role="status" className="bn-status">
           {view ? t(browserNetworkLabel(view).split(" · ")[0] ?? "") : t("Loading connections…")}
         </p>
-        <DragDropProvider
-          sensors={[PointerSensor, KeyboardSensor]}
-          onDragEnd={(event) => {
-            if (event.canceled || busy) return;
-            const { source } = event.operation;
-            if (
-              isSortable(source) &&
-              source.initialIndex !== source.index &&
-              ranked[source.index]
-            ) {
-              move(String(source.id), ranked[source.index]!);
-            }
-          }}
-        >
-          <ol aria-label={t("Connection priority")} className="bn-list">
-            {ranked.map((id, index) => {
-              const device = view?.devices.find((d) => d.machineId === id);
-              const name =
-                id === "server"
-                  ? t("Server connection")
-                  : (device?.label ?? t("Unavailable computer"));
-              return (
-                <NetworkSourceRow
-                  key={id}
-                  id={id}
-                  name={name}
-                  index={index}
-                  active={!!ready && activeId === id}
-                  current={!!device && id === localMachineId}
-                  available={
-                    id === "server" ||
-                    (!!device?.enabled &&
-                      (device.working ?? (device.connected && device.sharingAllowed)))
-                  }
-                  disabled={busy || !view}
-                />
-              );
-            })}
-          </ol>
-        </DragDropProvider>
+        <ol aria-label={t("Network exits")} className="bn-list">
+          {ranked.map((id, index) => {
+            const device = view?.devices.find((d) => d.machineId === id);
+            const name =
+              id === "server"
+                ? t("Server connection")
+                : (device?.label ?? t("Unavailable computer"));
+            const available =
+              id === "server" ||
+              (!!device?.enabled &&
+                (device.working ?? (device.connected && device.sharingAllowed)));
+            return (
+              <NetworkSourceRow
+                key={id}
+                id={id}
+                name={name}
+                index={index}
+                active={!!ready && activeId === id}
+                current={!!device && id === localMachineId}
+                available={available}
+                disabled={busy || !view || !available || activeId === id}
+                onSelect={() => void selectSource(id)}
+              />
+            );
+          })}
+        </ol>
         <div className="bn-egress" key={routeKey}>
           <span>{t("Exit IP")}</span>
           {ready &&
@@ -304,34 +267,6 @@ export function BrowserNetworkSettings() {
             />
           </label>
         )}
-        {dirty && (
-          <div className="bn-actions">
-            <span>{t("Unsaved changes")}</span>
-            <div className="bn-buttons">
-              {dirty && (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    setOrder(null);
-                    setDraftRevision(null);
-                  }}
-                  className={settingsSecondaryButton}
-                >
-                  {t("Discard")}
-                </button>
-              )}
-              <button
-                type="button"
-                disabled={busy || !view || !dirty}
-                onClick={() => void apply()}
-                className={settingsPrimaryButton}
-              >
-                {t("Apply")}
-              </button>
-            </div>
-          </div>
-        )}
         {view && !["ready", "server"].includes(view.runtime.state) && (
           <button
             type="button"
@@ -367,6 +302,7 @@ function NetworkSourceRow({
   current,
   available,
   disabled,
+  onSelect,
 }: {
   id: string;
   name: string;
@@ -375,44 +311,33 @@ function NetworkSourceRow({
   current: boolean;
   available: boolean;
   disabled: boolean;
+  onSelect: () => void;
 }) {
   const { t } = useI18n();
-  const { ref, handleRef, isDragging } = useSortable({
-    id,
-    index,
-    group: "browser-network",
-    type: "browser-network",
-    accept: "browser-network",
-    disabled,
-  });
   const Icon = id === "server" ? Server : /mini|desktop|studio/i.test(name) ? Monitor : Laptop;
   return (
-    <li
-      ref={ref}
-      data-network-source={id}
-      className={`bn-source${isDragging ? " bn-dragging" : ""}`}
-    >
-      <span className="bn-rank">{index + 1}</span>
-      <Icon size={16} strokeWidth={1.7} className="bn-icon" />
-      <span className="bn-device-label">
-        <span className="bn-name">{name}</span>
-        {current && <span className="bn-current">{t("(current)")}</span>}
-      </span>
-      <span
-        className={`bn-device-status${available ? " bn-working" : ""}${active ? " bn-in-use" : ""}`}
-        aria-label={active ? t("Working · In use") : undefined}
-      >
-        <span className="bn-status-dot" aria-hidden="true" />
-        {active ? t("In use") : available ? t("Working") : t("Not working")}
-      </span>
+    <li data-network-source={id} className="bn-source">
       <button
-        ref={handleRef}
         type="button"
-        aria-label={t("Reorder {name}", { name })}
+        onClick={onSelect}
         disabled={disabled}
-        className="bn-handle"
+        aria-current={active ? "true" : undefined}
+        aria-label={active ? t("{name} is in use", { name }) : t("Use {name}", { name })}
+        className="bn-source-button"
       >
-        <GripVertical size={14} />
+        <span className="bn-rank">{index + 1}</span>
+        <Icon size={16} strokeWidth={1.7} className="bn-icon" />
+        <span className="bn-device-label">
+          <span className="bn-name">{name}</span>
+          {current && <span className="bn-current">{t("(current)")}</span>}
+        </span>
+        <span
+          className={`bn-device-status${available ? " bn-working" : ""}${active ? " bn-in-use" : ""}`}
+          aria-label={active ? t("Working · In use") : undefined}
+        >
+          <span className="bn-status-dot" aria-hidden="true" />
+          {active ? t("In use") : available ? t("Working") : t("Not working")}
+        </span>
       </button>
     </li>
   );
