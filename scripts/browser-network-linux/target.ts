@@ -2,7 +2,9 @@
 // a synthetic globally routable address so the production public-address policy runs unchanged.
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
+import { createSecureServer } from "node:http2";
 import { createSocket } from "node:dgram";
+import { createServer as createTcpServer } from "node:net";
 import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { WebSocketServer } from "ws";
@@ -16,6 +18,7 @@ const queries: Array<{ name: string; type: number; ip: string }> = [];
 const chunk = Buffer.alloc(64 * 1024, 0x5a);
 const handler = (req: IncomingMessage, res: ServerResponse) => {
   const path = new URL(req.url!, "http://fixture").pathname;
+  const host = String(req.headers.host ?? req.headers[":authority"] ?? "");
   if (path === "/stats") {
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify({ requests, queries }));
@@ -25,7 +28,7 @@ const handler = (req: IncomingMessage, res: ServerResponse) => {
     typeof req.headers["x-chaos-id"] === "string" ? req.headers["x-chaos-id"] : undefined;
   requests.push({ path, ip: req.socket.remoteAddress, method: req.method, id: requestId });
   res.setHeader("cache-control", "no-store");
-  if (req.headers.host === "ipwho.is") {
+  if (host === "ipwho.is") {
     res.setHeader("content-type", "application/json");
     res.end(
       JSON.stringify({
@@ -37,7 +40,7 @@ const handler = (req: IncomingMessage, res: ServerResponse) => {
     );
     return;
   }
-  if (req.headers.host === "speed.cloudflare.com") {
+  if (host === "speed.cloudflare.com") {
     if (req.method === "POST" && path === "/__up") {
       let bytes = 0;
       req.on("data", (chunk) => {
@@ -58,6 +61,11 @@ const handler = (req: IncomingMessage, res: ServerResponse) => {
   if (path === "/api") {
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify({ ip: req.socket.remoteAddress }));
+    return;
+  }
+  if (path === "/tls13-h2") {
+    res.setHeader("content-type", "text/plain");
+    res.end("tls13-h2");
     return;
   }
   if (path === "/iframe") {
@@ -156,6 +164,18 @@ for (const server of [
   );
   server.listen(server instanceof (await import("node:https")).Server ? 443 : 80, "0.0.0.0");
 }
+const http2 = createSecureServer(
+  {
+    cert: readFileSync("/tmp/cert.pem"),
+    key: readFileSync("/tmp/key.pem"),
+    allowHTTP1: true,
+  },
+  handler as any
+);
+http2.listen(8443, "0.0.0.0");
+createTcpServer((socket) => {
+  socket.once("data", () => socket.destroy());
+}).listen(8444, "0.0.0.0");
 createServer((req, res) => {
   requests.push({ path: "FORBIDDEN_PORT", ip: req.socket.remoteAddress, method: req.method });
   res.end("forbidden");

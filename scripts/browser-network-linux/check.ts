@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
 import { chmod, readFile, readdir, writeFile } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { lookup } from "node:dns/promises";
+import { createConnection, type Socket } from "node:net";
+import { connect as tlsConnect } from "node:tls";
 import { chromium } from "playwright-core";
 import WebSocket from "ws";
 
@@ -174,6 +177,63 @@ async function rankedSource(source: string, timeout = 25000) {
     timeout
   );
 }
+async function socksConnect(host: string, port: number): Promise<Socket> {
+  const socket = createConnection({ host: "127.0.0.1", port: 18791 });
+  let buffered = Buffer.alloc(0);
+  const read = (size: number) =>
+    new Promise<Buffer>((resolve, reject) => {
+      const onData = (chunk: Buffer) => {
+        buffered = Buffer.concat([buffered, chunk]);
+        if (buffered.length < size) return;
+        socket.off("data", onData);
+        const value = buffered.subarray(0, size);
+        buffered = buffered.subarray(size);
+        resolve(value);
+      };
+      socket.on("data", onData);
+      socket.once("error", reject);
+    });
+  await new Promise<void>((resolve, reject) => {
+    socket.once("connect", resolve);
+    socket.once("error", reject);
+  });
+  socket.write(Buffer.from([5, 1, 0]));
+  assert.deepEqual(await read(2), Buffer.from([5, 0]));
+  const name = Buffer.from(host);
+  socket.write(
+    Buffer.concat([
+      Buffer.from([5, 1, 0, 3, name.length]),
+      name,
+      Buffer.from([port >> 8, port & 255]),
+    ])
+  );
+  const reply = await read(4);
+  assert.equal(reply[0], 5);
+  assert.equal(reply[1], 0);
+  const length = reply[3] === 1 ? 4 : reply[3] === 4 ? 16 : (await read(1))[0]!;
+  await read(length + 2);
+  return socket;
+}
+async function largeClientHello(host: string, port: number) {
+  const raw = await socksConnect(host, port);
+  const protocols = [
+    "h2",
+    ...Array.from({ length: 1800 }, (_, index) => `relay-${index.toString().padStart(4, "0")}`),
+  ];
+  const socket = tlsConnect({
+    socket: raw,
+    servername: host,
+    ca: readFileSync("/tmp/cert.pem"),
+    minVersion: "TLSv1.3",
+    ALPNProtocols: protocols,
+  });
+  await new Promise<void>((resolve, reject) => {
+    socket.once("secureConnect", resolve);
+    socket.once("error", reject);
+  });
+  assert.equal(socket.alpnProtocol, "h2");
+  socket.destroy();
+}
 async function interruptedBy(action: () => Promise<unknown>, label: string) {
   await origin();
   const inflight = pages[0].evaluate(async () => {
@@ -309,6 +369,16 @@ try {
     pass(
       "two managed bot browsers: HTTP/TLS, DNS, subresources, iframe, fetch, workers and WS/WSS all exit device A"
     );
+    await pages[0].goto("https://browser-target.test:8443/tls13-h2", {
+      waitUntil: "networkidle",
+      timeout: 15000,
+    });
+    assert.equal(await pages[0].textContent("body"), "tls13-h2");
+    pass("production relay reaches a real TLS 1.3 HTTP/2 endpoint");
+    await largeClientHello("browser-target.test", 8443);
+    pass("production relay preserves a large TLS ClientHello and negotiates HTTP/2");
+    await blocked("https://browser-target.test:8444/");
+    pass("remote early TLS close is surfaced as a failed browser navigation");
     const payload = randomBytes(1024 * 1024);
     await pages[0].locator("#upload").setInputFiles({
       name: "payload.bin",
