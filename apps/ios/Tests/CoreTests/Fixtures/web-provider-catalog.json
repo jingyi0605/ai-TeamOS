@@ -95,6 +95,22 @@
         }
       ],
       "setupUrl": "https://www.perplexity.ai/account/api/keys"
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "brand": "deepseek",
+      "description": "Live web search with page content.",
+      "fields": [
+        {
+          "id": "apiKey",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "placeholder": "API key"
+        }
+      ],
+      "setupUrl": "https://platform.deepseek.com/api_keys"
     }
   ],
   "fetch": [
@@ -153,6 +169,22 @@
         }
       ],
       "setupUrl": "https://www.firecrawl.dev/app/api-keys"
+    },
+    {
+      "id": "deepseek",
+      "name": "DeepSeek",
+      "brand": "deepseek",
+      "description": "Fetches public pages as Markdown.",
+      "fields": [
+        {
+          "id": "apiKey",
+          "label": "API key",
+          "secret": true,
+          "required": true,
+          "placeholder": "API key"
+        }
+      ],
+      "setupUrl": "https://platform.deepseek.com/api_keys"
     }
   ],
   "recommendedSearch": "exa"
