@@ -2,6 +2,7 @@ package com.outcomego.android.data
 
 import com.outcomego.mobile.core.HttpMethod
 import com.outcomego.mobile.core.MobileRequest
+import com.outcomego.mobile.core.OutcomeGoRequestException
 import com.outcomego.mobile.core.mobileJson
 import com.outcomego.mobile.core.requireSuccess
 import com.outcomego.mobile.network.ProviderSnapshot
@@ -20,7 +21,9 @@ import com.outcomego.mobile.core.Session
 data class AndroidNetworkDetails(
     val providerState: ProviderState,
     val computerState: String = "unavailable",
+    val routeSelectedToThisPhone: Boolean = false,
     val connectedToThisPhone: Boolean = false,
+    val egressAvailable: Boolean = false,
     val activeMachineId: String? = null,
     val activeConnections: Int = 0,
     val bytesSent: Long = 0,
@@ -30,6 +33,8 @@ data class AndroidNetworkDetails(
     val latencyMs: Int? = null,
     val downloadMbps: Double? = null,
     val uploadMbps: Double? = null,
+    val egressErrorCode: String? = null,
+    val qualityErrorCode: String? = null,
     val error: String? = null,
 )
 
@@ -65,36 +70,59 @@ class AndroidNetworkStatusLoader(
         val state = runtime.string("state").ifBlank { "unavailable" }
         val activeMachineId = runtime.string("activeMachineId").ifBlank { null }
         val localMachineId = local.machineId ?: AndroidProviderStore(context).machineId
-        val connected = state == "ready" && activeMachineId == localMachineId
-        val egress = if (state == "ready" || state == "server") {
-            runCatching {
-                request(session, HttpMethod.POST, "/api/v0/server-settings/browser-network/egress")
-            }.getOrNull()
+        val routeSelectedToThisPhone = state == "ready" && activeMachineId == localMachineId
+        val egressProbe = if (state == "ready" || state == "server") {
+            probe(session, "/api/v0/server-settings/browser-network/egress")
         } else {
-            null
+            ProbeResult(null, null)
         }
-        val quality = if (includeQuality && (state == "ready" || state == "server")) {
-            runCatching {
-                request(session, HttpMethod.POST, "/api/v0/server-settings/browser-network/quality")
-            }.getOrNull()
+        val qualityProbe = if (includeQuality && (state == "ready" || state == "server")) {
+            probe(session, "/api/v0/server-settings/browser-network/quality")
         } else {
-            null
+            ProbeResult(null, null)
         }
+        val egress = egressProbe.value
+        val egressAvailable = egress != null &&
+            egress.string("sourceId") == (activeMachineId ?: "server") &&
+            egress.string("epoch") == runtime.string("routeEpoch")
+        val connected = routeSelectedToThisPhone && egressAvailable
+        val egressErrorCode = egressProbe.errorCode
+            ?: if (egress != null && !egressAvailable) "network_egress_changed" else null
         return AndroidNetworkDetails(
             providerState = local.state,
             computerState = state,
+            routeSelectedToThisPhone = routeSelectedToThisPhone,
             connectedToThisPhone = connected,
+            egressAvailable = egressAvailable,
             activeMachineId = activeMachineId,
             activeConnections = runtime.int("activeConnections"),
             bytesSent = runtime.long("bytesSent"),
             bytesReceived = runtime.long("bytesReceived"),
-            egressIp = egress?.string("ip"),
-            egressLocation = egress?.string("location"),
-            latencyMs = quality?.int("latencyMs"),
-            downloadMbps = quality?.double("downloadMbps"),
-            uploadMbps = quality?.double("uploadMbps"),
+            egressIp = egress?.string("ip")?.takeIf { egressAvailable },
+            egressLocation = egress?.string("location")?.takeIf { egressAvailable },
+            latencyMs = qualityProbe.value?.int("latencyMs")?.takeIf { egressAvailable },
+            downloadMbps = qualityProbe.value?.double("downloadMbps")?.takeIf { egressAvailable },
+            uploadMbps = qualityProbe.value?.double("uploadMbps")?.takeIf { egressAvailable },
+            egressErrorCode = egressErrorCode,
+            qualityErrorCode = qualityProbe.errorCode,
+            error = when {
+                egressErrorCode != null -> userMessage(egressErrorCode)
+                qualityProbe.errorCode != null ->
+                    "Egress is connected, but the speed test is unavailable (${qualityProbe.errorCode})."
+                else -> null
+            },
         )
     }
+
+    private suspend fun probe(
+        session: Session,
+        path: String,
+    ): ProbeResult = runCatching {
+        request(session, HttpMethod.POST, path)
+    }.fold(
+        onSuccess = { ProbeResult(it, null) },
+        onFailure = { ProbeResult(null, it.errorCode()) },
+    )
 
     private suspend fun request(
         session: Session,
@@ -108,6 +136,26 @@ class AndroidNetworkStatusLoader(
         ).requireSuccess()
         return mobileJson.parseToJsonElement(response.body).jsonObject
     }
+
+    private fun Throwable.errorCode(): String =
+        (this as? OutcomeGoRequestException)?.error?.code
+            ?: message?.takeIf { it.isNotBlank() }
+            ?: "network_probe_failed"
+
+    private fun userMessage(code: String): String = when (code) {
+        "network_egress_unavailable" ->
+            "The phone is selected, but it cannot reach the public internet."
+        "network_egress_changed" ->
+            "The network route changed while it was being checked. Refresh and try again."
+        "computer_unavailable" ->
+            "The cloud computer network worker is unavailable."
+        else -> "The selected network egress is unavailable ($code)."
+    }
+
+    private data class ProbeResult(
+        val value: JsonObject?,
+        val errorCode: String?,
+    )
 }
 
 private fun JsonObject.string(name: String): String =

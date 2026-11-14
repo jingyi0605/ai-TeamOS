@@ -184,7 +184,10 @@ private fun StatusCard(
             StatusLine(
                 textFor(language, "Cloud computer route", "云端电脑路由"),
                 when {
-                    details?.connectedToThisPhone == true -> textFor(language, "Connected to this phone", "已连接到本机")
+                    details?.connectedToThisPhone == true ->
+                        textFor(language, "Connected and usable", "已连接且可用")
+                    details?.routeSelectedToThisPhone == true ->
+                        textFor(language, "Selected, but egress unavailable", "已选择本机，但出口不可用")
                     details?.computerState == "server" -> textFor(language, "Using server connection", "正在使用服务器连接")
                     else -> details?.computerState ?: textFor(language, "Unavailable", "不可用")
                 },
