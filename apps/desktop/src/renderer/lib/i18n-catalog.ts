@@ -203,6 +203,18 @@ export const sourceTranslations: Record<string, string> = {
   "Could not save the public webhook URL.": "无法保存公开 Webhook 地址。",
   "Public webhook URL": "公开 Webhook 地址",
   "HTTPS endpoint for webhook routines.": "Webhook 例程使用的 HTTPS 地址。",
+  Webhook: "Webhook",
+  "Webhook URL": "Webhook 地址",
+  "Bearer key": "Bearer 密钥",
+  "Authorization header": "Authorization 请求头",
+  "Send a POST request with JSON and the authorization header below.":
+    "发送 JSON POST 请求，并使用下面的 Authorization 请求头。",
+  "Webhook status: {status}": "Webhook 状态：{status}",
+  "When a webhook is called": "Webhook 被调用时",
+  "Remove webhook trigger": "移除 Webhook 触发条件",
+  "Enable this routine before adding a webhook trigger.": "请先启用此例程，再添加 Webhook 触发条件。",
+  "Configure a public HTTPS webhook address in Server settings first.":
+    "请先在服务器设置中配置公开 HTTPS Webhook 地址。",
   "Clear saved override": "清除已保存的覆盖值",
   Connectivity: "连接状态",
   "HTTPS endpoint for webhook routines.\nExternal services use it to reach your bots.":

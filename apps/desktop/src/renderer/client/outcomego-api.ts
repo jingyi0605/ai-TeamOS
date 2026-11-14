@@ -68,6 +68,8 @@ export const api = {
       "/api/server-settings/automation-webhook-public-url/check",
       { method: "POST", body: JSON.stringify({ publicUrl }) }
     ),
+  routineWebhook: (routineId: string) =>
+    outcomeGoClient.routineWebhook(routineId),
   screenTakeover: outcomeGoClient.setScreenTakeover,
   /** Best-effort unload path; keepalive is a browser lifecycle concern. */
   releaseScreenTakeover: (botId: string) => {

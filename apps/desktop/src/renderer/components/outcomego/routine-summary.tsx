@@ -10,6 +10,7 @@ import {
   type RoutineScheduleDraft,
   type RoutineView,
   routineIsRunning,
+  routineHasWebhookTrigger,
   routineScheduleDrafts,
   routineSummaryProjectionEqual,
 } from "../../lib/routines";
@@ -83,8 +84,16 @@ export function RoutinesSummary({
 
   const sorted = useMemo(
     () => [
-      ...(routines?.filter((routine) => routine.scheduleKind !== "event" && routine.enabled) ?? []),
-      ...(routines?.filter((routine) => routine.scheduleKind !== "event" && !routine.enabled) ??
+      ...(routines?.filter(
+        (routine) =>
+          (routine.scheduleKind !== "event" || routineHasWebhookTrigger(routine.trigger)) &&
+          routine.enabled
+      ) ?? []),
+      ...(routines?.filter(
+        (routine) =>
+          (routine.scheduleKind !== "event" || routineHasWebhookTrigger(routine.trigger)) &&
+          !routine.enabled
+      ) ??
         []),
     ],
     [routines]
@@ -162,9 +171,12 @@ function RoutineRows({
       {routines.map((routine) => {
         const running = routineIsRunning(routine);
         const schedules = routineScheduleDrafts(routine);
+        const webhook = routineHasWebhookTrigger(routine.trigger);
         const detail = routine.enabled
           ? schedules.length > 0
             ? describeRoutineSchedules(schedules)
+            : webhook
+              ? t("When a webhook is called")
             : describeRoutineSchedule(cloneDefaultSchedule())
           : t("Paused");
         return (

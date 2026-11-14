@@ -1,4 +1,5 @@
 import { isWindowVisible } from "../../lib/window-visibility";
+import type { RoutineWebhookView } from "@outcomego/contracts/automation-webhooks";
 import {
   routineExecutionStatusPresentation,
   routineOrdinalLabel,
@@ -10,9 +11,11 @@ import {
   ChevronRight,
   CirclePlus,
   Clock3,
+  Copy,
   LoaderCircle,
   Pause,
   X,
+  Webhook,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ClientError } from "../../client/http";
@@ -28,10 +31,12 @@ import {
   type RoutineSchedulePreset,
   type RoutineView,
   routineDraftValid,
+  routineHasWebhookTrigger,
   routineIsRunning,
   routinePresentationValue,
   routineScheduleDrafts,
   routineScheduleValue,
+  routineScheduleValues,
   routineTriggerValue,
 } from "../../lib/routines";
 import { Button } from "../ui/button";
@@ -281,12 +286,22 @@ const menuItemClass =
   "flex h-8 cursor-default select-none items-center gap-2 rounded-[6px] px-2 text-[13px] font-normal outline-none data-[highlighted]:bg-accent";
 
 function AddScheduleMenu({
+  canAddSchedule,
+  canAddWebhook,
+  webhookUnavailableReason,
   hasSchedules,
+  hasWebhook,
+  onAddWebhook,
   onAdd,
   onOpenChange,
   open,
 }: {
+  canAddSchedule: boolean;
+  canAddWebhook: boolean;
+  webhookUnavailableReason?: string;
   hasSchedules: boolean;
+  hasWebhook: boolean;
+  onAddWebhook: () => void;
   onAdd: (schedule: RoutineScheduleDraft) => void;
   onOpenChange: (open: boolean) => void;
   open: boolean;
@@ -314,7 +329,7 @@ function AddScheduleMenu({
         sideOffset={4}
       >
         <DropdownMenuSub>
-          <DropdownMenuSubTrigger className={menuItemClass}>
+          <DropdownMenuSubTrigger className={menuItemClass} disabled={!canAddSchedule}>
             <Clock3 className="size-4 shrink-0 text-muted-foreground" />
             <span className="flex-1">{t("On a schedule")}</span>
             <ChevronRight className="size-3 text-muted-foreground" />
@@ -337,6 +352,15 @@ function AddScheduleMenu({
               ))}
           </DropdownMenuSubContent>
         </DropdownMenuSub>
+        <DropdownMenuItem
+          className={menuItemClass}
+          disabled={hasWebhook || !canAddWebhook}
+          onSelect={onAddWebhook}
+          title={webhookUnavailableReason}
+        >
+          <Webhook className="size-4 shrink-0 text-muted-foreground" />
+          <span>{t("When a webhook is called")}</span>
+        </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -703,6 +727,31 @@ function ScheduleCard({
   );
 }
 
+function WebhookTriggerCard({ onRemove }: { onRemove: () => void }) {
+  const { t } = useI18n();
+  return (
+    <li className="group/webhook border-b border-[#dedede] dark:border-[#343434]">
+      <div className="flex min-h-10 items-center gap-2 px-2">
+        <span className="grid size-3.5 shrink-0 place-items-center">
+          <Webhook className="size-3.5 text-muted-foreground" />
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[13px]">
+          {t("When a webhook is called")}
+        </span>
+        <Button
+          aria-label={t("Remove webhook trigger")}
+          className="size-7 rounded-full text-muted-foreground opacity-0 transition-opacity group-hover/webhook:opacity-100 hover:opacity-100 focus-visible:opacity-100"
+          onClick={onRemove}
+          size="icon-sm"
+          variant="ghost"
+        >
+          <X className="size-3.5" />
+        </Button>
+      </div>
+    </li>
+  );
+}
+
 const executionStatus = (execution: RoutineExecutionView): string =>
   routineExecutionStatusPresentation(execution.status, "activity").label;
 
@@ -764,6 +813,7 @@ interface RoutineDraft {
   name: string;
   prompt: string;
   enabled: boolean;
+  webhook: boolean;
   schedules: Array<{ id: string; schedule: RoutineScheduleDraft }>;
 }
 
@@ -780,10 +830,45 @@ interface RoutineSaveContext {
   attached: boolean;
 }
 
+function WebhookValue({
+  copied,
+  label,
+  onCopy,
+  value,
+}: {
+  copied: boolean;
+  label: string;
+  onCopy: () => void;
+  value: string;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="grid gap-1">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[10px] font-medium uppercase tracking-[0.04em] text-muted-foreground">
+          {label}
+        </span>
+        <button
+          className="inline-flex items-center gap-1 text-[10px] text-foreground-secondary hover:text-foreground"
+          onClick={onCopy}
+          type="button"
+        >
+          {copied ? <Check className="size-3" /> : <Copy className="size-3" />}
+          {copied ? t("Copied") : t("Copy")}
+        </button>
+      </div>
+      <code className="block select-all break-all rounded-[6px] bg-black/[0.04] px-2 py-1.5 text-[10px] leading-4 dark:bg-white/[0.06]">
+        {value}
+      </code>
+    </div>
+  );
+}
+
 const newDraft = (): RoutineDraft => ({
   name: "",
   prompt: "",
   enabled: true,
+  webhook: false,
   schedules: [],
 });
 
@@ -797,14 +882,19 @@ const draftFromRoutine = (routine: RoutineView): RoutineDraft => ({
   name: routine.name,
   prompt: routine.prompt,
   enabled: routine.enabled,
+  webhook: routineHasWebhookTrigger(routine.trigger),
   schedules: routineScheduleDrafts(routine).map(scheduleDraftItem),
 });
 
 const draftValid = (draft: RoutineDraft) =>
   draft.name.trim().length > 0 &&
   draft.prompt.trim().length > 0 &&
-  draft.schedules.length > 0 &&
+  (draft.webhook || draft.schedules.length > 0) &&
   draft.schedules.length <= 8 &&
+  draft.schedules.reduce(
+    (count, item) => count + routineScheduleValues(item.schedule).length,
+    draft.webhook ? 1 : 0
+  ) <= 8 &&
   draft.schedules.every(({ schedule }) =>
     routineDraftValid({ name: draft.name, prompt: draft.prompt, schedule })
   );
@@ -824,6 +914,9 @@ export function RoutineEditor({
 }) {
   const { t } = useI18n();
   const [routine, setRoutine] = useState<RoutineView | null>(null);
+  const [webhook, setWebhook] = useState<RoutineWebhookView | null>(null);
+  const [webhookAvailable, setWebhookAvailable] = useState<boolean | null>(null);
+  const [copiedWebhookField, setCopiedWebhookField] = useState<string | null>(null);
   const [draft, setDraft] = useState<RoutineDraft>(newDraft);
   const [executions, setExecutions] = useState<RoutineExecutionView[]>([]);
   const [expandedSchedule, setExpandedSchedule] = useState<number | null>(null);
@@ -861,6 +954,9 @@ export function RoutineEditor({
     setLoading(Boolean(routineId));
     setSaveState("idle");
     setRoutine(null);
+    setWebhook(null);
+    setWebhookAvailable(null);
+    setCopiedWebhookField(null);
     saveContext.routine = null;
     setExecutions([]);
     setDirty(false);
@@ -872,6 +968,14 @@ export function RoutineEditor({
     setExpandedSchedule(null);
     setAddScheduleOpen(false);
     if (!routineId) return () => undefined;
+    void api.automationWebhookPublicUrl().then(
+      (view) => {
+        if (!cancelled) setWebhookAvailable(view.valid && Boolean(view.publicUrl));
+      },
+      () => {
+        if (!cancelled) setWebhookAvailable(false);
+      }
+    );
     void Promise.all([api.routine(routineId), api.routineExecutions(routineId)]).then(
       ([loaded, history]) => {
         if (cancelled) return;
@@ -884,6 +988,14 @@ export function RoutineEditor({
         setExecutions(history);
         setDirty(false);
         setLoading(false);
+        void api.routineWebhook(loaded.id).then(
+          (nextWebhook) => {
+            if (!cancelled) setWebhook(nextWebhook);
+          },
+          () => {
+            if (!cancelled) setWebhook(null);
+          }
+        );
       },
       () => {
         if (!cancelled) {
@@ -897,6 +1009,30 @@ export function RoutineEditor({
     };
   }, [active, routineId, saveContext]);
 
+  useEffect(() => {
+    if (routineId || !active) return;
+    let cancelled = false;
+    setWebhookAvailable(null);
+    void api.automationWebhookPublicUrl().then(
+      (view) => {
+        if (!cancelled) setWebhookAvailable(view.valid && Boolean(view.publicUrl));
+      },
+      () => {
+        if (!cancelled) setWebhookAvailable(false);
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [active, routineId]);
+
+  const copyWebhookValue = async (field: string, value: string) => {
+    if (!navigator.clipboard) return;
+    await navigator.clipboard.writeText(value);
+    setCopiedWebhookField(field);
+    window.setTimeout(() => setCopiedWebhookField(null), 1_500);
+  };
+
   const persist = useCallback(async function save(
     context: RoutineSaveContext,
     value: RoutineDraft
@@ -908,11 +1044,11 @@ export function RoutineEditor({
     }
     const schedules = value.schedules.map(({ schedule }) => schedule);
     const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-    const trigger = routineTriggerValue(schedules, timeZone);
+    const trigger = routineTriggerValue(schedules, timeZone, value.webhook);
     context.saving = true;
     if (context.attached) setSaveState("saving");
     try {
-      const presentation = routinePresentationValue(schedules);
+      const presentation = routinePresentationValue(schedules, value.webhook);
       const current = context.routine;
       const update = (base: RoutineView) =>
         api.updateRoutine(base.id, {
@@ -938,6 +1074,14 @@ export function RoutineEditor({
       }
       context.routine = saved;
       if (context.attached) setRoutine(saved);
+      void api.routineWebhook(saved.id).then(
+        (nextWebhook) => {
+          if (context.attached) setWebhook(nextWebhook);
+        },
+        () => {
+          if (context.attached) setWebhook(null);
+        }
+      );
       if (context.draft === value) {
         context.dirty = false;
         if (context.attached) setDirty(false);
@@ -1070,6 +1214,14 @@ export function RoutineEditor({
       .then((saved) => {
         context.routine = saved;
         if (context.attached) setRoutine(saved);
+        void api.routineWebhook(saved.id).then(
+          (nextWebhook) => {
+            if (context.attached) setWebhook(nextWebhook);
+          },
+          () => {
+            if (context.attached) setWebhook(null);
+          }
+        );
         if (context.draft === next) {
           const confirmed = { ...next, enabled: saved.enabled };
           context.draft = confirmed;
@@ -1200,6 +1352,11 @@ export function RoutineEditor({
           </Label>
           <div className="rounded-[10px] border border-[#dedede] dark:border-[#343434]">
             <ul aria-label={t("Triggers")}>
+              {draft.webhook && (
+                <WebhookTriggerCard
+                  onRemove={() => queue({ ...draft, webhook: false }, true)}
+                />
+              )}
               {draft.schedules.map((item, index) => (
                 <ScheduleCard
                   expanded={expandedSchedule === index}
@@ -1223,7 +1380,23 @@ export function RoutineEditor({
                 />
               ))}
             </ul>
-            {draft.schedules.length < 8 && (
+            {(() => {
+              const scheduleListenerCount = draft.schedules.reduce(
+                (count, item) => count + routineScheduleValues(item.schedule).length,
+                0
+              );
+              const canAddSchedule = scheduleListenerCount < (draft.webhook ? 7 : 8);
+              const canAddWebhook =
+                draft.enabled &&
+                webhookAvailable === true &&
+                !draft.webhook &&
+                scheduleListenerCount < 8;
+              const webhookUnavailableReason = !draft.enabled
+                ? t("Enable this routine before adding a webhook trigger.")
+                : webhookAvailable === false
+                  ? t("Configure a public HTTPS webhook address in Server settings first.")
+                  : undefined;
+              return (canAddSchedule || canAddWebhook) && (
               <div
                 className={cn(
                   expandedSchedule !== null &&
@@ -1231,7 +1404,12 @@ export function RoutineEditor({
                 )}
               >
                 <AddScheduleMenu
+                  canAddSchedule={canAddSchedule}
+                  canAddWebhook={canAddWebhook}
                   hasSchedules={draft.schedules.length > 0}
+                  hasWebhook={draft.webhook}
+                  onAddWebhook={() => queue({ ...draft, webhook: true }, true)}
+                  webhookUnavailableReason={webhookUnavailableReason}
                   onAdd={(schedule) => {
                     const schedules = [...draft.schedules, scheduleDraftItem(schedule)];
                     setExpandedSchedule(schedules.length - 1);
@@ -1241,9 +1419,44 @@ export function RoutineEditor({
                   open={addScheduleOpen}
                 />
               </div>
-            )}
+              );
+            })()}
           </div>
         </div>
+
+        {webhook ? (
+          <div className="grid gap-2">
+            <Label className="pl-2 text-[12px] font-normal text-muted-foreground">
+              {t("Webhook")}
+            </Label>
+            <div className="grid gap-3 rounded-[10px] border border-[#dedede] px-3 py-3 dark:border-[#343434]">
+              <p className="text-[11px] leading-4 text-foreground-secondary">
+                {t("Send a POST request with JSON and the authorization header below.")}
+              </p>
+              <WebhookValue
+                copied={copiedWebhookField === "url"}
+                label={t("Webhook URL")}
+                onCopy={() => void copyWebhookValue("url", webhook.callbackUrl)}
+                value={webhook.callbackUrl}
+              />
+              <WebhookValue
+                copied={copiedWebhookField === "key"}
+                label={t("Bearer key")}
+                onCopy={() => void copyWebhookValue("key", webhook.key)}
+                value={webhook.key}
+              />
+              <WebhookValue
+                copied={copiedWebhookField === "authorization"}
+                label={t("Authorization header")}
+                onCopy={() => void copyWebhookValue("authorization", webhook.authorizationHeader)}
+                value={webhook.authorizationHeader}
+              />
+              <p className="text-[10px] leading-4 text-foreground-tertiary">
+                {t("Webhook status: {status}", { status: webhook.status })}
+              </p>
+            </div>
+          </div>
+        ) : null}
 
         <div className="grid gap-1">
           <Label className="pl-2 text-[12px] font-normal text-muted-foreground">

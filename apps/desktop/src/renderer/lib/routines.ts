@@ -43,6 +43,20 @@ export type RoutineSchedulePreset =
   | "advanced"
   | "custom";
 
+const containsWebhookTrigger = (value: unknown): boolean => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const trigger = value as Record<string, unknown>;
+  return (
+    trigger.type === "webhook" ||
+    (trigger.type === "group" &&
+      Array.isArray(trigger.listeners) &&
+      trigger.listeners.some((listener) => containsWebhookTrigger(listener)))
+  );
+};
+
+export const routineHasWebhookTrigger = (trigger: unknown): boolean =>
+  containsWebhookTrigger(trigger);
+
 export const formatRoutineExecutionTime = (
   execution: RoutineExecutionView,
   now = new Date(),
@@ -244,9 +258,10 @@ const listField = (values: readonly number[]): string =>
 
 export const routineTriggerValue = (
   drafts: readonly RoutineScheduleDraft[],
-  timeZone?: string
+  timeZone?: string,
+  webhook = false
 ): Record<string, unknown> => {
-  const listeners = drafts.flatMap((draft) =>
+  const listeners: Array<Record<string, unknown>> = drafts.flatMap((draft) =>
     routineScheduleValues(draft).map((schedule) => ({
       type: "cron",
       schedule:
@@ -255,14 +270,16 @@ export const routineTriggerValue = (
           : schedule,
     }))
   );
+  if (webhook) listeners.push({ type: "webhook" });
   return listeners.length === 1
-    ? (listeners[0] ?? { type: "cron", schedule: "" })
+    ? (listeners[0] ?? { type: "webhook" })
     : { type: "group", listeners };
 };
 
 export const routineScheduleDrafts = (routine: RoutineView): RoutineScheduleDraft[] => {
   const presented = routinePresentationDrafts(routine.triggerPresentation);
   if (presented) return presented;
+  if (routineHasWebhookTrigger(routine.trigger) && routine.schedules.length === 0) return [];
   const schedules = routine.schedules.length > 0 ? routine.schedules : [routine.schedule];
   return schedules.map(parseRoutineSchedule);
 };
@@ -338,7 +355,12 @@ const presentedSchedule = (value: unknown): RoutineScheduleDraft | null => {
 
 export const routinePresentationDrafts = (presentation: unknown): RoutineScheduleDraft[] | null => {
   if (!presentation || typeof presentation !== "object" || Array.isArray(presentation)) return null;
-  const value = presentation as { version?: unknown; kind?: unknown; schedules?: unknown };
+  const value = presentation as {
+    version?: unknown;
+    kind?: unknown;
+    schedules?: unknown;
+    webhook?: unknown;
+  };
   if (
     value.version !== 2 ||
     value.kind !== "bot-time-routines" ||
@@ -347,17 +369,19 @@ export const routinePresentationDrafts = (presentation: unknown): RoutineSchedul
     return null;
   }
   const schedules = value.schedules.map(presentedSchedule);
-  return schedules.length > 0 && schedules.every(Boolean)
+  return (schedules.length > 0 || value.webhook === true) && schedules.every(Boolean)
     ? (schedules as RoutineScheduleDraft[])
     : null;
 };
 
 export const routinePresentationValue = (
-  schedules: readonly RoutineScheduleDraft[]
+  schedules: readonly RoutineScheduleDraft[],
+  webhook = false
 ): Record<string, unknown> => ({
   version: 2,
   kind: "bot-time-routines",
   schedules,
+  ...(webhook ? { webhook: true } : {}),
 });
 
 const formatTime = (time: string) => {

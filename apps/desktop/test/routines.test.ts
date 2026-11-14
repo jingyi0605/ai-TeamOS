@@ -6,6 +6,7 @@ import {
   parseRoutineSchedule,
   type RoutineView,
   routineDraftValid,
+  routineHasWebhookTrigger,
   routinePresentationDrafts,
   routinePresentationValue,
   routineScheduleValue,
@@ -45,6 +46,14 @@ describe("OutcomeGo-compatible routine schedule editor", () => {
       listeners: [
         { type: "cron", schedule: "CRON_TZ=America/New_York 0 9 * * 1-5" },
         { type: "cron", schedule: "@every 5m" },
+      ],
+    });
+    expect(routineTriggerValue([], "America/New_York", true)).toEqual({ type: "webhook" });
+    expect(routineTriggerValue([weekdays], "America/New_York", true)).toEqual({
+      type: "group",
+      listeners: [
+        { type: "cron", schedule: "CRON_TZ=America/New_York 0 9 * * 1-5" },
+        { type: "webhook" },
       ],
     });
   });
@@ -132,6 +141,11 @@ describe("OutcomeGo-compatible routine schedule editor", () => {
     ];
     const presentation = JSON.parse(JSON.stringify(routinePresentationValue(schedules)));
     expect(routinePresentationDrafts(presentation)).toEqual(schedules);
+    expect(
+      routinePresentationDrafts(
+        routinePresentationValue([], true)
+      )
+    ).toEqual([]);
     expect(routinePresentationDrafts({ version: 2, kind: "bot-time-routines" })).toBeNull();
     expect(
       routinePresentationDrafts({
@@ -139,6 +153,17 @@ describe("OutcomeGo-compatible routine schedule editor", () => {
         schedules: [{ ...presentation.schedules[0], time: "99:99" }],
       })
     ).toBeNull();
+  });
+
+  test("recognizes webhook triggers as manual routine sources", () => {
+    expect(routineHasWebhookTrigger({ type: "webhook" })).toBe(true);
+    expect(
+      routineHasWebhookTrigger({
+        type: "group",
+        listeners: [{ type: "cron", schedule: "0 9 * * *" }, { type: "webhook" }],
+      })
+    ).toBe(true);
+    expect(routineHasWebhookTrigger({ type: "cron", schedule: "0 9 * * *" })).toBe(false);
   });
 
   test("does not rebuild a large routine summary when a poll is visibly unchanged", () => {
