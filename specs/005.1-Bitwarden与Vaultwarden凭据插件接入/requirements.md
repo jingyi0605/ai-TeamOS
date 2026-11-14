@@ -115,7 +115,7 @@ Vaultwarden 提供与 Bitwarden 客户端生态兼容的自托管密码库。用
 5. WHEN 用户要求直接查看密码、用户名或 TOTP THEN Bot SHALL 先发送聊天问题 widget 请求读取所选 item 的授权，只有获得批准后才能调用包装脚本并在当前任务中使用结果；credential value SHALL 只进入 Computer 私有环境和浏览器写入路径，不得进入 Bot 模型上下文、聊天消息或终端输出。
 6. WHEN 本次任务首次读取某个 item 的字段 THEN 授权 SHALL 在本次任务剩余时间内适用于该 item；更换 item 必须重新授权，已授权 item 的后续字段不重复询问。
 7. WHEN `ReadBitwardenCredential` is called without a matching server-side approved `BitwardenReadApproval` and current-task reference THEN Server SHALL reject the call before exposing protected runtime fields, regardless of Skill instructions or model arguments.
-8. WHEN the user dismisses, denies, or an approval lease expires THEN Server SHALL reject every credential read for that approval and SHALL NOT inject `BW_*` into a normal Shell. Any approved field value held by Computer SHALL be removed when the task ends or its short TTL expires.
+8. WHEN the user dismisses, denies, or an approval lease expires THEN Server SHALL reject every credential read for that approval and SHALL NOT inject `BW_*` into a normal Shell. Any approved field value held by Computer SHALL be removed when its credential scope ends or its short TTL expires; a delegated `computerUse` child SHALL be allowed to use the parent scope only while that task scope is active.
 9. WHEN 匹配项不存在、类型不支持或字段为空 THEN Skill SHALL 返回明确缺失原因，不猜测其他项目，也不暴露其他搜索结果中的密码。
 10. WHEN 读取完成 THEN Skill SHALL 不把完整 item JSON、未请求字段、credential value 或 Vault 中其他项目写入用户消息、模型上下文、插件活动日志或诊断日志。
 

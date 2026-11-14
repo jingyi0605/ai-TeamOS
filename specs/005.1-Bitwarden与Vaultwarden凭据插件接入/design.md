@@ -268,18 +268,19 @@ itemId?: string
 }
 ```
 
-成功读取只返回必要值：
+成功读取只返回不含凭据值的引用：
 
 ```json
 {
   "ok": true,
   "kind": "password",
   "itemId": "<opaque-item-id>",
-  "value": "<credential-value>"
+  "browserReference": "$OUTCOMEGO_BITWARDEN_PASSWORD_<opaque-suffix>",
+  "expiresInSeconds": 900
 }
 ```
 
-wrapper 的 `value` 只在 Computer 私有执行路径中解析，随后写入带 TTL 的 `OUTCOMEGO_BITWARDEN_*` 环境变量；first-party 工具只返回变量名和 `browserReference`，不返回 value。浏览器 `browser_type` 和 `browser_fill_form` 在写入前解析引用，浏览器结果和页面观察继续使用现有私有值脱敏。任务结束或 TTL 到期时删除环境变量和 Computer 内存中的值。
+wrapper 的 `value` 只在 Computer 私有执行路径中解析，随后写入带 TTL 的 `OUTCOMEGO_BITWARDEN_*` 环境变量；first-party 工具只返回变量名和 `browserReference`，不返回 value。父任务与 `computerUse` 子任务通过运行请求中的 credential scope 共享引用解析，浏览器 `browser_type`、`browser_fill_form` 和 Computer `type` 在写入前解析引用。引用无法解析时写入路径必须失败关闭，不能把变量引用字面量发给页面。浏览器结果和页面观察继续使用现有私有值脱敏；子任务完成后释放共享 scope，没有子任务时由 TTL 清理环境变量和 Computer 内存中的值。
 
 ## 4. 数据与状态模型
 
