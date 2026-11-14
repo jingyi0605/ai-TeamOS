@@ -246,6 +246,12 @@ import com.outcomego.features.LiveVoiceView
 import com.outcomego.features.LocalAppLanguage
 import com.outcomego.features.localizedText
 import com.outcomego.features.AppSettings
+import com.outcomego.features.BotAvatarColorOption
+import com.outcomego.features.BotAvatarShapeOption
+import com.outcomego.features.DropdownSelectorField
+import com.outcomego.features.PickerCatalogs
+import com.outcomego.features.SelectorFieldStyle
+import com.outcomego.features.VolcengineVoiceSelector
 import com.outcomego.platform.SharePayload
 import com.outcomego.platform.VoiceRecordingState
 import com.outcomego.platform.AndroidVncWebViewRenderer
@@ -585,9 +591,11 @@ fun OutcomeGoApp(
         composable(PROFILE, arguments = listOf(navArgument("conversationId") { type = NavType.StringType })) { entry ->
             val id = entry.arguments?.getString("conversationId").orEmpty()
             val conversation = state.conversations.firstOrNull { it.id == id }
+            val voiceProvider = (state.features.voiceSettings as? FeatureLoadState.Ready)?.value?.defaultProvider ?: "volcengine"
             ConversationProfileScreen(
                 conversation = conversation,
                 bots = state.conversations.filter { it.isBot },
+                voiceProvider = voiceProvider,
                 onSaveBot = { current, name, description, instructions, voice, icon, color ->
                     appViewModel.updateBot(current, name, description, instructions, voice, icon, color)
                     navController.popBackStack()
@@ -2733,8 +2741,12 @@ private fun CreateConversationScreen(
                 }
             } else {
                 OutlinedTextField(instructions, { instructions = it }, label = { Text(localizedText("Instructions", "说明")) }, modifier = Modifier.fillMaxWidth(), minLines = 5)
-                OutlinedTextField(icon, { icon = it }, label = { Text(localizedText("Icon", "图标")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(color, { color = it }, label = { Text(localizedText("Color (#RRGGBB)", "颜色（#RRGGBB）")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                BotAvatarFields(
+                    icon = icon,
+                    onIconChange = { icon = it },
+                    color = color,
+                    onColorChange = { color = it },
+                )
             }
             Button(
                 onClick = {
@@ -2753,6 +2765,7 @@ private fun CreateConversationScreen(
 private fun ConversationProfileScreen(
     conversation: Conversation?,
     bots: List<Conversation>,
+    voiceProvider: String = "volcengine",
     onSaveBot: (Conversation, String, String, String, String, String, String) -> Unit,
     onSaveGroup: (Conversation, String, String, List<String>) -> Unit,
     onBack: () -> Unit,
@@ -2764,10 +2777,10 @@ private fun ConversationProfileScreen(
     }
     var name by remember(conversation.id) { mutableStateOf(conversation.title) }
     var description by remember(conversation.id) { mutableStateOf(conversation.subtitle) }
-    var instructions by remember { mutableStateOf("") }
+    var instructions by remember(conversation.id) { mutableStateOf(conversation.botInstructions) }
     var voice by remember(conversation.id) { mutableStateOf(conversation.botVoice) }
-    var icon by remember { mutableStateOf("chip") }
-    var color by remember { mutableStateOf(conversation.avatarColor.ifBlank { "#A47952" }) }
+    var icon by remember(conversation.id) { mutableStateOf(conversation.botIcon.ifBlank { "chip" }) }
+    var color by remember(conversation.id) { mutableStateOf(conversation.avatarColor.ifBlank { "#A47952" }) }
     val selected = remember(conversation.id) { mutableStateOf(conversation.memberBotIds.toSet()) }
     Scaffold(
         topBar = {
@@ -2793,9 +2806,25 @@ private fun ConversationProfileScreen(
                 }
             } else {
                 OutlinedTextField(instructions, { instructions = it }, label = { Text(localizedText("Instructions", "说明")) }, modifier = Modifier.fillMaxWidth(), minLines = 5)
-                OutlinedTextField(voice, { voice = it }, label = { Text(localizedText("Realtime voice", "实时语音")) }, supportingText = { Text(localizedText("Provider-specific voice or speaker ID. Leave blank for the server default.", "服务商专用的声音或说话人 ID。留空使用服务器默认值。")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(icon, { icon = it }, label = { Text(localizedText("Icon", "图标")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(color, { color = it }, label = { Text(localizedText("Color (#RRGGBB)", "颜色（#RRGGBB）")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                if (voiceProvider == "volcengine") {
+                    VolcengineVoiceSelector(
+                        selectedVoiceId = voice,
+                        automaticLabel = localizedText("Server default", "服务器默认"),
+                        onSelectVoice = { voice = it },
+                        label = localizedText("Realtime voice", "实时语音"),
+                        supportingText = localizedText("Speaker voice for realtime calls. Leave as Server default to follow global voice settings.", "实时通话音色。保持“服务器默认”以跟随全局语音设置。"),
+                        style = SelectorFieldStyle.Outlined,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    OutlinedTextField(voice, { voice = it }, label = { Text(localizedText("Realtime voice", "实时语音")) }, supportingText = { Text(localizedText("Provider-specific voice or speaker ID. Leave blank for the server default.", "服务商专用的声音或说话人 ID。留空使用服务器默认值。")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                }
+                BotAvatarFields(
+                    icon = icon,
+                    onIconChange = { icon = it },
+                    color = color,
+                    onColorChange = { color = it },
+                )
             }
             Button(
                 onClick = {
@@ -2808,6 +2837,70 @@ private fun ConversationProfileScreen(
             ) { Text(localizedText("Save", "保存")) }
         }
     }
+}
+
+@Composable
+private fun BotAvatarFields(
+    icon: String,
+    onIconChange: (String) -> Unit,
+    color: String,
+    onColorChange: (String) -> Unit,
+) {
+    val useChinese = localizedText("en", "zh") == "zh"
+    val previewFill = color.toComposeColor() ?: Color(0xFFA47952)
+    val shapeOptions = remember(icon) {
+        val trimmed = icon.trim()
+        if (trimmed.isNotEmpty() && PickerCatalogs.robotAvatarShapes.none { it.id.equals(trimmed, ignoreCase = true) }) {
+            listOf(BotAvatarShapeOption(trimmed, trimmed, trimmed)) + PickerCatalogs.robotAvatarShapes
+        } else {
+            PickerCatalogs.robotAvatarShapes
+        }
+    }
+    val selectedShape = shapeOptions.firstOrNull { it.id.equals(icon.trim(), ignoreCase = true) }
+        ?: shapeOptions.first()
+
+    val colorOptions = remember(color) {
+        val trimmed = color.trim()
+        if (trimmed.isNotEmpty() && PickerCatalogs.botAvatarColors.none { it.hex.equals(trimmed, ignoreCase = true) }) {
+            listOf(BotAvatarColorOption(trimmed, trimmed, trimmed)) + PickerCatalogs.botAvatarColors
+        } else {
+            PickerCatalogs.botAvatarColors
+        }
+    }
+    val selectedColor = colorOptions.firstOrNull { it.hex.equals(color.trim(), ignoreCase = true) }
+        ?: colorOptions.first()
+
+    DropdownSelectorField(
+        selectedValue = selectedShape,
+        options = shapeOptions,
+        optionLabel = { if (useChinese) it.labelZh else it.labelEn },
+        onSelect = { onIconChange(it.id) },
+        label = localizedText("Icon", "图标"),
+        isSameValue = { a, b -> a.id.equals(b.id, ignoreCase = true) },
+        leadingContent = { option -> ServerBotAvatar(option.id, previewFill, 22.dp) },
+        modifier = Modifier.fillMaxWidth(),
+    )
+
+    DropdownSelectorField(
+        selectedValue = selectedColor,
+        options = colorOptions,
+        optionLabel = { option ->
+            val name = if (useChinese) option.labelZh else option.labelEn
+            if (name.equals(option.hex, ignoreCase = true)) option.hex else "$name (${option.hex})"
+        },
+        onSelect = { onColorChange(it.hex) },
+        label = localizedText("Color", "颜色"),
+        isSameValue = { a, b -> a.hex.equals(b.hex, ignoreCase = true) },
+        leadingContent = { option ->
+            Box(
+                Modifier
+                    .size(18.dp)
+                    .clip(CircleShape)
+                    .background(option.hex.toComposeColor() ?: previewFill),
+            )
+        },
+        modifier = Modifier.fillMaxWidth(),
+    )
 }
 
 @Composable
