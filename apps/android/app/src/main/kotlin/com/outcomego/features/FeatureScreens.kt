@@ -952,6 +952,7 @@ fun SettingsScreen(
     server: String,
     networkSharing: ProviderSnapshot,
     onToggleNetworkSharing: (Boolean) -> Unit,
+    onNetworkSharingDetails: () -> Unit,
     androidUpdateState: AndroidUpdateState,
     onCheckForAndroidUpdate: () -> Unit,
     onDownloadAndroidUpdate: () -> Unit,
@@ -1145,6 +1146,12 @@ fun SettingsScreen(
                         status,
                         sharing,
                         onToggleNetworkSharing,
+                    )
+                    SettingsDivider()
+                    SettingsActionRow(
+                        text("Cloud computer egress", "云端电脑出口"),
+                        text("View route, proxy address, traffic, and speed", "查看路由、代理地址、流量和速度"),
+                        onNetworkSharingDetails,
                     )
                     SettingsDivider()
                     SettingsActionRow(text("Message outbox", "消息发件箱"), text("Retry messages that could not be delivered", "重试无法投递的消息"), onOutbox)

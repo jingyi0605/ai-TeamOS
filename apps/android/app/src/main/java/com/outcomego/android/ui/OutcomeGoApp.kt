@@ -218,6 +218,7 @@ import com.outcomego.features.ProviderSettingsScreen
 import com.outcomego.features.RoutineEditorScreen
 import com.outcomego.features.RoutinesScreen
 import com.outcomego.features.SettingsScreen
+import com.outcomego.features.NetworkSharingDetailsScreen
 import com.outcomego.features.WebProviderSettingsScreen
 import com.outcomego.features.VoiceSettingsScreen
 import com.outcomego.features.LiveVoiceView
@@ -256,6 +257,7 @@ private const val MARKETPLACE = "marketplace"
 private const val ROUTINES = "routines"
 private const val ROUTINE_EDITOR = "routines/editor"
 private const val SETTINGS = "settings"
+private const val NETWORK_SHARING_DETAILS = "network-sharing-details"
 private const val PROVIDERS = "providers"
 private const val WEB_PROVIDERS = "web-providers"
 private const val REALTIME_VOICE = "realtime-voice"
@@ -710,6 +712,7 @@ fun OutcomeGoApp(
                     if (enabled) AndroidNetworkProvider.start(context, allowSharing = true)
                     else AndroidNetworkProvider.stop(context)
                 },
+                onNetworkSharingDetails = { navController.navigate(NETWORK_SHARING_DETAILS) },
                 androidUpdateState = androidUpdateState,
                 onCheckForAndroidUpdate = onCheckForAndroidUpdate,
                 onDownloadAndroidUpdate = onDownloadAndroidUpdate,
@@ -727,6 +730,13 @@ fun OutcomeGoApp(
                 onAccount = { navController.navigate(ACCOUNT) },
                 onPlugins = { navController.navigate(PLUGINS) },
                 onSidebar = { navController.navigate(SIDEBAR) },
+            )
+        }
+        composable(NETWORK_SHARING_DETAILS) {
+            NetworkSharingDetailsScreen(
+                provider = networkSharing,
+                language = state.features.settings.language,
+                onBack = { navController.popBackStack() },
             )
         }
         composable(OUTBOX) {

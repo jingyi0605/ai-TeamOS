@@ -8,7 +8,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.coroutineScope
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -144,7 +144,7 @@ class ProviderSession(
         )
         mux = currentMux
         challenge()
-        supervisorScope {
+        coroutineScope {
             val receiver = launch {
                 ws.incoming.collect { currentMux.receive(it) }
             }
