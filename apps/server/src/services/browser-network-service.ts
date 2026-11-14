@@ -269,7 +269,7 @@ export class BrowserNetworkService {
       if (!this.internalAuthorized(peer.request)) throw new Error("unauthorized");
       return;
     }
-    if (!this.machines.relay.matchesConnection(peer.machineId!, peer.connectionId!))
+    if (!this.machines.relay.touch(peer.machineId!, peer.connectionId!))
       throw new Error("stale enrollment");
     await this.machines.authenticate(peer.request);
     peer.checkedAt = performance.now();

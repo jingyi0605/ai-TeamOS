@@ -67,6 +67,14 @@ export class MachineRelay {
     return this.connected(machineId) && this.connections.get(machineId)?.id === connectionId;
   }
 
+  /** Browser-network leases are a second long-lived presence channel. */
+  touch(machineId: string, connectionId: string) {
+    const connection = this.connections.get(machineId);
+    if (!connection || connection.id !== connectionId || !this.connected(machineId)) return false;
+    connection.seenAt = Date.now();
+    return true;
+  }
+
   connect(machineId: string) {
     this.disconnect(machineId);
     const connection: Connection = { id: randomUUID(), seenAt: Date.now(), pending: new Map(), controller: new AbortController(), staging: 0 };

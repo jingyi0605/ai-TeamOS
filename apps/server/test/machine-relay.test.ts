@@ -61,3 +61,17 @@ test("disconnect cancels streaming responses and explicit failure promptly relea
     relay.fail("one",next.connectionId,failureId);expect((await failed as Error).message).toContain("may have run");
   }finally{relay.close();}
 });
+
+test("touch keeps a browser-network provider presence alive", async () => {
+  const relay = new MachineRelay(1, 50);
+  try {
+    const connection = relay.connect("phone");
+    await Bun.sleep(35);
+    expect(relay.touch("phone", connection.connectionId)).toBe(true);
+    await Bun.sleep(35);
+    expect(relay.connected("phone")).toBe(true);
+    expect(relay.touch("phone", "stale-connection")).toBe(false);
+  } finally {
+    relay.close();
+  }
+});
