@@ -1816,7 +1816,14 @@ const referenceType = async ({ request, page }) => {
 		if (request.clear === true) {
 			await element.fill("");
 		}
-		await page.keyboard.type(request.text, { delay: request.slowly === true ? 40 : 0 });
+		try {
+			await page.keyboard.type(request.text, { delay: request.slowly === true ? 40 : 0 });
+			if (request.secret === true) await markSecretFill(element, request.text);
+		} catch (error) {
+			if (request.secret === true)
+				await markSecretFill(element, request.text).catch(() => undefined);
+			throw error;
+		}
 		if (request.submit === true) {
 			await page.keyboard.press("Enter");
 			await settleAfter(page, "the submit", 5000);

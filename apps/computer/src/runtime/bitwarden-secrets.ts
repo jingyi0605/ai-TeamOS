@@ -13,6 +13,9 @@ type Entry = {
 const ENVIRONMENT_PREFIX = "OUTCOMEGO_BITWARDEN_";
 const REFERENCE = /^\$(OUTCOMEGO_BITWARDEN_\w+)$|^\$\{(OUTCOMEGO_BITWARDEN_\w+)\}$/;
 
+export const isBitwardenSecretReference = (value: unknown): value is string =>
+  typeof value === "string" && REFERENCE.test(value.trim());
+
 /**
  * Keeps an approved Bitwarden value in the Computer process only long enough
  * for a browser action to consume it. The variable name may enter the model

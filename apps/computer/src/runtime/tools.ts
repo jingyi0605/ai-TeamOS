@@ -99,7 +99,11 @@ import type { ActiveTurn, RuntimeDynamicTool } from "./types";
 import { renderShellAwaitResult } from "@outcomego/shell-jobs";
 import { scopedProcessEnvironment } from "@outcomego/plugin-sdk";
 import { objectToolSchema } from "../tool-schema";
-import { BitwardenSecretStore, type BitwardenSecretField } from "./bitwarden-secrets";
+import {
+  BitwardenSecretStore,
+  isBitwardenSecretReference,
+  type BitwardenSecretField,
+} from "./bitwarden-secrets";
 
 export const GRAPHICAL_WORKER_SHELL_DESCRIPTION = [
   "Executes a given command in a shell session with optional foreground timeout.",
@@ -326,8 +330,8 @@ export class RuntimeTools {
     },
   );
 
-  private bitwardenScope(active: Pick<ActiveTurn, "botId" | "runId" | "screenBotId">): string {
-    const scope = `${active.botId}:${active.runId}`;
+  private bitwardenScope(active: Pick<ActiveTurn, "botId" | "runId" | "screenBotId" | "credentialScopeId">): string {
+    const scope = active.credentialScopeId ?? `${active.botId}:${active.runId}`;
     this.bitwardenScopeScreens.set(scope, active.screenBotId);
     return scope;
   }
@@ -500,7 +504,11 @@ export class RuntimeTools {
     private readonly canDeliverShellCompletion: (
       botId: string,
       channelId?: string
-    ) => boolean = () => true
+    ) => boolean = () => true,
+    private readonly hasActiveCredentialScope: (
+      scope: string,
+      excludingRunId: string
+    ) => boolean = () => false,
   ) {
     this.webTools = new WebTools(
       new SearchProviderClient(serverSearchConfiguration(serverUrl, controlToken)),
@@ -1168,7 +1176,10 @@ export class RuntimeTools {
     const input = args as Record<string, unknown>;
     if (toolName === "browser_type" && typeof input.text === "string") {
       const resolved = this.bitwardenSecrets.resolve(this.bitwardenScope(active), input.text);
-      return resolved ? { ...input, text: resolved.value } : args;
+      if (resolved) return { ...input, text: resolved.value, __outcomeGoSecretFill: true };
+      if (isBitwardenSecretReference(input.text))
+        throw new Error("The Bitwarden credential reference is unavailable or expired");
+      return args;
     }
     if (toolName === "browser_fill_form" && Array.isArray(input.fields)) {
       let changed = false;
@@ -1177,17 +1188,26 @@ export class RuntimeTools {
         const candidate = field as Record<string, unknown>;
         if (typeof candidate.value !== "string") return field;
         const resolved = this.bitwardenSecrets.resolve(this.bitwardenScope(active), candidate.value);
-        if (!resolved) return field;
+        if (!resolved) {
+          if (isBitwardenSecretReference(candidate.value))
+            throw new Error("The Bitwarden credential reference is unavailable or expired");
+          return field;
+        }
         changed = true;
-        return { ...candidate, value: resolved.value };
+        return { ...candidate, value: resolved.value, __outcomeGoSecretFill: true };
       });
       return changed ? { ...input, fields } : args;
     }
     return args;
   }
 
-  clearBitwardenSecrets(active: Pick<ActiveTurn, "botId" | "runId" | "screenBotId">): void {
+  clearBitwardenSecrets(active: Pick<ActiveTurn, "botId" | "runId" | "screenBotId" | "credentialScopeId">): void {
     const scope = this.bitwardenScope(active);
+    // The parent turn can finish before its delegated computerUse worker starts.
+    // Keep the root scope alive until its TTL; child cleanup releases it once no
+    // other turn in the same task scope remains.
+    if (active.runId === active.credentialScopeId) return;
+    if (this.hasActiveCredentialScope(scope, active.runId)) return;
     const values = this.bitwardenSecrets.clearScope(scope);
     if (values.length) this.forgetBrowserValues(active.screenBotId, values);
     this.bitwardenScopeScreens.delete(scope);

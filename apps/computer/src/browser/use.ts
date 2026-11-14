@@ -1312,16 +1312,17 @@ export class BrowserUseSession {
   private async type(args: JsonObject) {
     const page = await this.ensurePage();
     if (typeof args.text !== "string") throw new Error("text is required");
+    const secret = args.__outcomeGoSecretFill === true;
     // The entire text is filled in at once; slowly types one character at a time.
     let summary: string;
-    if (args.slowly === true) summary = (await referenceType({ page, request: args })).summary;
+    if (args.slowly === true) summary = (await referenceType({ page, request: { ...args, secret } })).summary;
     else {
       const handle = await this.requireRef(page, args.ref);
       const editable = await handle.evaluate((el) => el.isConnected && !el.matches(":disabled") &&
         el.getAttribute("aria-disabled") !== "true" && el.getAttribute("aria-readonly") !== "true" && !el.hasAttribute("readonly") &&
         ((el as HTMLElement).isContentEditable || el.matches('textarea,input:not([type]),input[type="text"],input[type="search"],input[type="email"],input[type="url"],input[type="tel"],input[type="password"],input[type="number"],input[type="date"],input[type="time"],input[type="month"],input[type="datetime-local"]')));
       if (!editable) throw new Error("Target is not an enabled editable text control. No click or typing was performed. Take a fresh browser_snapshot and choose an editable ref.");
-      summary = (await referenceFill({ page, element: handle, request: { ref: args.ref, element: args.element, value: args.text } })).summary;
+      summary = (await referenceFill({ page, element: handle, request: { ref: args.ref, element: args.element, value: args.text, secret } })).summary;
     }
     if (args.slowly !== true && args.submit === true) {
       await page.keyboard.press("Enter");
@@ -1333,7 +1334,7 @@ export class BrowserUseSession {
   private async fillBatch(args: JsonObject) {
     if (!Array.isArray(args.fields) || !args.fields.length || args.fields.length > 20)
       throw new Error("fields must contain 1–20 entries");
-    const fields = args.fields as Array<{target: string; name: string; type: string; value: string | boolean}>;
+    const fields = args.fields as Array<{target: string; name: string; type: string; value: string | boolean; __outcomeGoSecretFill?: boolean}>;
     const seen = new Set<string>();
     for (const field of fields) {
       if (!field || !/^e[0-9]+$/.test(field.target) || typeof field.name !== "string" || field.name.length > 500 || seen.has(field.target))
@@ -1353,12 +1354,14 @@ export class BrowserUseSession {
       try {
         if (await handle.evaluate(WRITE_TARGET_IS_HIDDEN_FN) || await writeTargetFrameIsHidden(page, handle))
           throw new Error("hidden");
-        const valid = await handle.evaluate((node, type) => node.isConnected && !node.hasAttribute("disabled") && !node.hasAttribute("readonly") &&
-          (type === "checkbox" ? node.matches('input[type="checkbox"],[role="checkbox"],[role="switch"]') :
-            type === "radio" ? node.matches('input[type="radio"],[role="radio"]') :
-            type === "combobox" ? node.matches('select,input,[role="combobox"]') :
-            type === "slider" ? node.matches('input[type="range"],[role="slider"]') :
-            node.matches('textarea,input:not([type="password"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="submit"]):not([type="button"])') || node.isContentEditable), field.type);
+        const valid = await handle.evaluate((node, input: { type: string; protectedValue: boolean }) => node.isConnected && !node.hasAttribute("disabled") && !node.hasAttribute("readonly") &&
+          (input.type === "checkbox" ? node.matches('input[type="checkbox"],[role="checkbox"],[role="switch"]') :
+            input.type === "radio" ? node.matches('input[type="radio"],[role="radio"]') :
+            input.type === "combobox" ? node.matches('select,input,[role="combobox"]') :
+            input.type === "slider" ? node.matches('input[type="range"],[role="slider"]') :
+            node.matches('textarea,input:not([type="password"]):not([type="file"]):not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="submit"]):not([type="button"])') ||
+            (input.protectedValue === true && node.matches('input[type="password"]')) ||
+            node.isContentEditable), { type: field.type, protectedValue: field.__outcomeGoSecretFill === true });
         if (!valid) throw new Error("unavailable");
         if (field.type === "checkbox" || field.type === "radio") {
           const value = field.value === true || field.value === "true";
@@ -1372,7 +1375,7 @@ export class BrowserUseSession {
         } else if (field.type === "slider") {
           await handle.fill(String(field.value), { timeout: 3_000 });
         } else {
-          await referenceFill({ page, element: handle, request: {ref: field.target, element: field.name, value: field.value} });
+          await referenceFill({ page, element: handle, request: {ref: field.target, element: field.name, value: field.value, secret: field.__outcomeGoSecretFill === true} });
         }
         outcomes.push({target: field.target, status: "filled"});
       } catch {

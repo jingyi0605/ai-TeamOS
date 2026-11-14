@@ -1429,6 +1429,8 @@ export const MAX_TURN_INLINE_IMAGES = CLIENT_CAPABILITIES.uploads.maxAttachments
 export const MAX_TURN_INLINE_IMAGE_BYTES = 80 * 1024 * 1024;
 export const ComputerTurnRequest = Schema.Struct({
   runId: Schema.String,
+  /** Stable credential scope shared by a parent turn and its delegated computerUse worker. */
+  credentialScopeId: Schema.optional(Schema.String),
   botId: Schema.String,
   contextSessionId: Schema.String,
   screenBotId: Schema.optional(Schema.String),

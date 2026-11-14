@@ -1487,6 +1487,7 @@ export class WakeWorker {
       } });
       const turnRequest = {
         runId: claimed.runId,
+        credentialScopeId: claimed.inferenceParentRunId ?? claimed.runId,
         botId: claimed.botId,
         contextSessionId: claimed.contextSessionId,
         screenBotId: claimed.screenBotId,

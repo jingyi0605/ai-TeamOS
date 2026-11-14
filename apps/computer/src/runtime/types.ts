@@ -22,6 +22,8 @@ export interface ActiveTurn {
   closePluginSession?: () => Promise<void>;
   readOnly?: boolean;
   runId: string;
+  /** Stable scope shared by a parent turn and its delegated computerUse worker. */
+  credentialScopeId?: string;
   botId: string;
   contextSessionId: string;
   screenBotId: string;

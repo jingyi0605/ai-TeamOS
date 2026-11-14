@@ -141,7 +141,11 @@ export class ComputerRuntime {
       this.controlToken,
       this.agentDir,
       this.workspaceRoot,
-      (botId, channelId) => ![...this.activeByRun.values()].some(turn => turn.botId === botId && (!channelId || turn.channelId === channelId))
+      (botId, channelId) => ![...this.activeByRun.values()].some(turn => turn.botId === botId && (!channelId || turn.channelId === channelId)),
+      (scope, excludingRunId) => [...this.activeByRun.values()].some((turn) =>
+        turn.runId !== excludingRunId &&
+        (turn.credentialScopeId ?? turn.runId) === scope
+      ),
     );
   }
 
@@ -311,6 +315,7 @@ export class ComputerRuntime {
       resolveContextReleased,
       taskConfiguration: request.taskConfiguration === undefined ? defaultTaskConfiguration() : parseTaskConfiguration(request.taskConfiguration),
       runId: request.runId,
+      credentialScopeId: request.credentialScopeId ?? request.runId,
       botId: request.botId,
       contextSessionId: request.contextSessionId,
       screenBotId: request.screenBotId ?? request.botId,

@@ -37,20 +37,22 @@ test("replaces a previous value for the same field and removes expired values", 
   expect(removed).toContain("second");
 });
 
-test("browser arguments resolve the reference inside Computer and cleanup removes it", () => {
+test("browser arguments resolve the reference across a delegated computerUse scope", () => {
   const runtime = new ComputerRuntime();
   const tools = (runtime as any).tools;
-  const active = { botId: "bot-1", runId: "run-1", screenBotId: "screen-1" };
-  const variable = tools.bitwardenSecrets.put(tools.bitwardenScope(active), "password", "browser-only-value");
+  const parent = { botId: "bot-1", runId: "run-1", credentialScopeId: "run-1", screenBotId: "screen-1" };
+  const child = { botId: "child-1", runId: "run-2", credentialScopeId: "run-1", screenBotId: "screen-1" };
+  const variable = tools.bitwardenSecrets.put(tools.bitwardenScope(parent), "password", "browser-only-value");
 
-  expect(tools.resolveBitwardenBrowserArguments(active, "browser_type", {
+  expect(tools.resolveBitwardenBrowserArguments(child, "browser_type", {
     target: "e1",
     text: `$${variable}`,
   })).toEqual({
     target: "e1",
     text: "browser-only-value",
+    __outcomeGoSecretFill: true,
   });
-  expect(tools.resolveBitwardenComputerAction(active, {
+  expect(tools.resolveBitwardenComputerAction(child, {
     action: "type",
     text: `$${variable}`,
   })).toEqual({
@@ -58,13 +60,24 @@ test("browser arguments resolve the reference inside Computer and cleanup remove
     text: "browser-only-value",
   });
 
-  tools.clearBitwardenSecrets(active);
+  tools.clearBitwardenSecrets(parent);
+  expect(process.env[variable]).toBe("browser-only-value");
+  expect(tools.resolveBitwardenBrowserArguments(child, "browser_type", {
+    target: "e1",
+    text: `$${variable}`,
+  })).toMatchObject({ text: "browser-only-value" });
+
+  tools.clearBitwardenSecrets(child);
   expect(process.env[variable]).toBeUndefined();
-  expect(tools.resolveBitwardenBrowserArguments(active, "browser_type", {
+});
+
+test("unavailable Bitwarden references fail closed instead of reaching the browser", () => {
+  const runtime = new ComputerRuntime();
+  const tools = (runtime as any).tools;
+  const active = { botId: "bot-1", runId: "run-1", credentialScopeId: "run-1", screenBotId: "screen-1" };
+
+  expect(() => tools.resolveBitwardenBrowserArguments(active, "browser_type", {
     target: "e1",
-    text: `$${variable}`,
-  })).toEqual({
-    target: "e1",
-    text: `$${variable}`,
-  });
+    text: "$OUTCOMEGO_BITWARDEN_PASSWORD_expired",
+  })).toThrow("unavailable or expired");
 });
