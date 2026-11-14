@@ -37,6 +37,15 @@ export interface AutomationWebhookView {
   hasSigningSecret: boolean;
 }
 
+/** Copy-ready details for the owner of a routine webhook. */
+export interface RoutineWebhookView {
+  publicUrl: string;
+  callbackUrl: string;
+  key: string;
+  authorizationHeader: string;
+  status: string;
+}
+
 export interface AutomationWebhookPublicUrlView {
   /** Effective URL used for newly provisioned routine webhooks. */
   publicUrl: string | null;

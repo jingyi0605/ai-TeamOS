@@ -64,7 +64,8 @@ test('the routines skill lists the trigger shapes the UpdateRoutine parser answe
   // Webhook URLs are provisioned per routine and returned by UpdateRoutine for the user to configure.
   expect(skill('routines')).not.toContain('ready-made link');
   expect(skill('routines')).not.toContain('from the routine panel');
-  expect(skill('routines')).toContain("returns the POST URL, bearer key, and complete Authorization header");
+  expect(skill('routines')).toContain("the routine details panel shows the copy-ready URL, bearer key, and complete Authorization header");
+  expect(skill('routines')).toContain("Invoke it with an optional JSON body and an Authorization: Bearer <key> header");
   expect(skill('routines')).toContain("The server must have a public HTTPS URL configured");
 });
 

@@ -856,6 +856,23 @@ describe("API contracts", () => {
           ...created,
           trigger: { type: "webhook" },
           webhook: {
+            configured: true,
+            status: "connected",
+          },
+        },
+        { action: "create" }
+      )
+    ).toContain(
+      "Webhook is configured. Open the routine details panel to copy its URL and authorization header."
+    );
+    expect(
+      renderControlResult(
+        "UpdateRoutine",
+        {
+          ...created,
+          trigger: { type: "webhook" },
+          webhook: {
+            configured: true,
             callbackUrl: "https://open.example/api/v0/automation-hooks/hook-1",
             key: "generated-webhook-key",
             authorizationHeader: "Authorization: Bearer generated-webhook-key",
@@ -864,9 +881,7 @@ describe("API contracts", () => {
         },
         { action: "create" }
       )
-    ).toContain(
-      "Webhook URL: https://open.example/api/v0/automation-hooks/hook-1\nWebhook key: generated-webhook-key\nWebhook Authorization: Authorization: Bearer generated-webhook-key"
-    );
+    ).not.toContain("generated-webhook-key");
     expect(renderControlResult("UpdateRoutine", { target: "routine", action: "get", refused: "a routine run can only read the routine that started it." }, { action: "get", id: "other" }))
       .toBe("Not read: a routine run can only read the routine that started it.");
     expect(renderControlResult("UpdateRoutine", { target: "routine", action: "create", refused: "a routine run cannot create another routine." }, { action: "create" }))

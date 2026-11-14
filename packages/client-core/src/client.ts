@@ -1,7 +1,11 @@
 import type { ServerUpdateView } from "@outcomego/contracts";
 import type { NotificationPresenceInput, NotificationRouting } from "@outcomego/contracts/notification-presence";
 import type { BrowserNetworkView, NetworkSettingsUpdate, NetworkEgress, NetworkQuality } from "@outcomego/contracts/browser-network";
-import type {AutomationWebhookInput,AutomationWebhookView} from "@outcomego/contracts/automation-webhooks";
+import type {
+  AutomationWebhookInput,
+  AutomationWebhookView,
+  RoutineWebhookView,
+} from "@outcomego/contracts/automation-webhooks";
 import type { WebProviderCheckInput, WebProvidersInput, WebProvidersView } from "@outcomego/contracts/web-search";
 import type {
   PluginComposerView,
@@ -777,6 +781,10 @@ export const createOutcomeGoClient = (options: OutcomeGoClientOptions) => {
       ),
     routine: (routineId: string) =>
       transport.request<RoutineView>(`/api/v0/routines/${encodeURIComponent(routineId)}`),
+    routineWebhook: (routineId: string) =>
+      transport.request<RoutineWebhookView | null>(
+        `/api/v0/routines/${encodeURIComponent(routineId)}/webhook`
+      ),
     createRoutine: (ownerId: string, ownerKind: "bot" | "group", input: CreateRoutineInput) =>
       transport.request<RoutineView>(
         ownerKind === "bot"

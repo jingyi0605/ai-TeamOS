@@ -133,10 +133,7 @@ export function renderControlResult(
           : `trigger: ${JSON.stringify(result.trigger)}`,
         ...(result.webhook
           ? [
-              `Webhook URL: ${result.webhook.callbackUrl}`,
-              `Webhook key: ${result.webhook.key}`,
-              `Webhook Authorization: ${result.webhook.authorizationHeader}`,
-              `Webhook status: ${result.webhook.status}`,
+              "Webhook is configured. Open the routine details panel to copy its URL and authorization header.",
             ]
           : []),
         "Saved prompt:",
@@ -156,7 +153,7 @@ export function renderControlResult(
       const owner = result.owner?.kind === "group" ? ` Owner: group "${result.owner.name ?? result.owner.id}" (${result.owner.id}).` : "";
       const summary = `${verb} routine "${result.name}" (folder ${result.folder ?? args.id})${["create", "update", "resume"].includes(args.action) ? `: ${describeTrigger(result.trigger ?? {type:"cron",schedule:result.schedule})}${result.enabled ? "" : ", paused"}` : ""}.${owner}`;
       const webhook = result.webhook
-        ? `\nWebhook URL: ${result.webhook.callbackUrl}\nWebhook key: ${result.webhook.key}\nWebhook Authorization: ${result.webhook.authorizationHeader}\nWebhook status: ${result.webhook.status}\nGive the user these values to configure the sending service.`
+        ? "\nWebhook is configured. Open the routine details panel to copy its URL and authorization header."
         : "";
       return `${summary}${webhook}${result.delivery_nudge ? "\nGive the user a concise summary of what this routine does and where its result goes." : ""}`;
     }

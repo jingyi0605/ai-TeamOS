@@ -334,7 +334,7 @@ adaptDescription("UpdateRoutine", [
   ],
   [
     "A change you suggest to save usage waits for the user's yes.",
-    "A webhook trigger provisions a routine-owned HTTPS POST URL and bearer key when a valid public HTTPS URL is configured in Settings > Server or through OPENTEAM_PUBLIC_URL. The result includes the URL, key, and complete Authorization header to give the user to configure in the sending service. The endpoint accepts an optional JSON body and starts only that routine.\nA change you suggest to save usage waits for the user's yes.",
+    "A webhook trigger provisions a routine-owned HTTPS POST URL and bearer key when a valid public HTTPS URL is configured in Settings > Server or through OUTCOMEGO_PUBLIC_URL. The routine details panel shows the copy-ready URL, bearer key, and complete Authorization header; do not put these credentials in the conversation. To invoke it, the external service must send an HTTPS POST with an optional JSON body and `Authorization: Bearer <key>`. The server verifies that bearer key before starting only that routine. The tool result reports that the webhook is configured and tells the user to open the routine details panel.\nA change you suggest to save usage waits for the user's yes.",
   ],
 ]);
 // The runtime checks arguments against the advertised schema, so the bare-array group

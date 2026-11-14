@@ -66,5 +66,8 @@ const routes = [
   effectRoute("GET", /^\/api\/routines\/([^/]+)\/executions$/, ({ app, url }, id) =>
     app.routineExecutions(id, Number(url.searchParams.get("limit") ?? 20))
   ),
+  effectRoute("GET", /^\/api\/routines\/([^/]+)\/webhook$/, ({ app }, id) =>
+    app.routineWebhook(id)
+  ),
   effectRoute("GET", /^\/api\/routines\/([^/]+)$/, ({ app }, id) => app.routineDetail(id)),
 ];

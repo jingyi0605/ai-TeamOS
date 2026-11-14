@@ -7,6 +7,7 @@ import {
   type AutomationWebhookPublicUrlView,
   type AutomationWebhookInput,
   type AutomationWebhookView,
+  type RoutineWebhookView,
 } from "@outcomego/contracts/automation-webhooks";
 import { receiveAutomationWebhook, type AutomationWebhookBinding } from "../automation-webhooks";
 import type { AutomationEvent } from "@outcomego/messaging";
@@ -25,7 +26,7 @@ const stableConfig = (value: unknown) =>
   JSON.stringify(
     Object.entries(value as Record<string, string>).sort(([a], [b]) => a.localeCompare(b))
   );
-const containsWebhookTrigger = (value: unknown): boolean => {
+export const containsWebhookTrigger = (value: unknown): boolean => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const trigger = value as Record<string, unknown>;
   return (
@@ -47,12 +48,7 @@ export interface RoutineWebhookOwner {
   kind: "bot" | "group";
   id: string;
 }
-export interface RoutineWebhookDetails {
-  callbackUrl: string;
-  key: string;
-  authorizationHeader: string;
-  status: string;
-}
+export type RoutineWebhookDetails = RoutineWebhookView;
 export class AutomationWebhooksService {
   private readonly environmentPublicUrl: string | null;
   private persistedPublicUrl: string | null = null;
@@ -66,7 +62,7 @@ export class AutomationWebhooksService {
       routineId?: string
     ) => Promise<unknown>,
     private readonly fetcher: typeof fetch = fetch,
-    initialPublicUrl = process.env.OPENTEAM_PUBLIC_URL
+    initialPublicUrl = process.env.OUTCOMEGO_PUBLIC_URL ?? process.env.OPENTEAM_PUBLIC_URL
   ) {
     this.environmentPublicUrl = initialPublicUrl?.trim() || null;
     this.effectivePublicUrl = this.environmentPublicUrl;
@@ -431,16 +427,28 @@ export class AutomationWebhooksService {
 
   private resolvePublicBaseUrl(publicUrl = this.effectivePublicUrl ?? undefined): string {
     if (!publicUrl) {
-      throw new ApiError(503, "webhook_public_url_missing", "Configure OPENTEAM_PUBLIC_URL as this server's public HTTPS address before creating a webhook routine.");
+      throw new ApiError(
+        503,
+        "webhook_public_url_missing",
+        "Configure the public HTTPS address in Settings > Server or set OUTCOMEGO_PUBLIC_URL before creating a webhook routine."
+      );
     }
     let url: URL;
     try {
       url = new URL(publicUrl);
     } catch {
-      throw new ApiError(503, "webhook_public_url_invalid", "OPENTEAM_PUBLIC_URL must be a valid public HTTPS base URL.");
+      throw new ApiError(
+        503,
+        "webhook_public_url_invalid",
+        "The configured public webhook URL must be a valid public HTTPS base URL."
+      );
     }
     if (url.protocol !== "https:" || url.username || url.password || url.search || url.hash)
-      throw new ApiError(503, "webhook_public_url_invalid", "OPENTEAM_PUBLIC_URL must be a public HTTPS base URL without credentials, query, or fragment.");
+      throw new ApiError(
+        503,
+        "webhook_public_url_invalid",
+        "The configured public webhook URL must be a public HTTPS base URL without credentials, query, or fragment."
+      );
     return url.href.replace(/\/$/, "");
   }
 
@@ -482,6 +490,7 @@ export class AutomationWebhooksService {
       enabled: routine.enabled,
     });
     return {
+      publicUrl,
       callbackUrl: saved.callbackUrl,
       key,
       authorizationHeader: `Authorization: Bearer ${key}`,
@@ -494,7 +503,12 @@ export class AutomationWebhooksService {
     if (!row) return null;
     if (row.ownerKind !== owner.kind || row.ownerId !== owner.id || row.source !== "webhook")
       throw new ApiError(409, "routine_webhook_conflict", "This routine's webhook binding belongs to a different target.");
+    const callbackUrl = new URL(row.callbackUrl);
+    callbackUrl.pathname = callbackUrl.pathname.replace(/\/api\/v0\/automation-hooks\/[^/]+$/, "") || "/";
+    callbackUrl.search = "";
+    callbackUrl.hash = "";
     return {
+      publicUrl: callbackUrl.href.replace(/\/$/, ""),
       callbackUrl: row.callbackUrl,
       key: row.signingSecret,
       authorizationHeader: `Authorization: Bearer ${row.signingSecret}`,

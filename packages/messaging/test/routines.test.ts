@@ -145,13 +145,22 @@ describe("routine schedules", () => {
             type: "group",
             listeners: [
               { type: "cron", schedule: "0 11 * * 1-5" },
-              { type: "pagerduty", event: { case: "incidentAny" } },
+              { type: "webhook" },
             ],
           },
         },
         "UTC"
       )
-    ).toMatchObject({ schedule: { scheduleKind: "cron" }, trigger: { type: "group" } });
+    ).toMatchObject({
+      schedule: { scheduleKind: "cron" },
+      trigger: {
+        type: "group",
+        listeners: [
+          { type: "cron", schedule: "0 11 * * 1-5" },
+          { type: "webhook" },
+        ],
+      },
+    });
   });
 
   test("matches Bot wall-clock behavior through DST gaps and folds", () => {

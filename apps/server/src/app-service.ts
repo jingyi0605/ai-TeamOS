@@ -1,6 +1,9 @@
 import { ApnsSettingsStore } from "@outcomego/db/apns-settings";
 import { MachineService } from "./services/machine-service";
-import { AutomationWebhooksService } from "./services/automation-webhooks";
+import {
+  AutomationWebhooksService,
+  containsWebhookTrigger,
+} from "./services/automation-webhooks";
 import { ApiError, type UpdateUserTimeZoneInput, type UploadAssetInput } from "@outcomego/contracts";
 import { createPrismaClient, Prisma, type PrismaClient } from "@outcomego/db";
 import {
@@ -424,37 +427,70 @@ export class AppService {
       this.routines.detailOwner(await this.routines.owner(routineId), routineId)
     );
 
+  private validateRoutineWebhookInput = (trigger: unknown): void => {
+    if (containsWebhookTrigger(trigger)) {
+      this.automationWebhooks.validateRoutineWebhookConfiguration();
+    }
+  };
+
+  private syncRoutineWebhook = async (
+    owner: { kind: "bot" | "group"; id: string },
+    routineId: string,
+    trigger: unknown,
+    previousTrigger?: unknown
+  ): Promise<void> => {
+    if (containsWebhookTrigger(trigger)) {
+      await this.automationWebhooks.ensureRoutineWebhook(routineId, owner);
+    } else if (containsWebhookTrigger(previousTrigger)) {
+      await this.automationWebhooks.removeRoutineWebhook(routineId, owner);
+    }
+  };
+
+  routineWebhook = (routineId: string) =>
+    serviceEffect(async () =>
+      this.automationWebhooks.routineWebhook(routineId, await this.routines.owner(routineId))
+    );
+
   createGroupRoutine = (channelId: string, clientId: string, input: RoutineMutationInput) =>
     serviceEffect(async () => {
       const owner = { kind: "group" as const, id: channelId };
+      this.validateRoutineWebhookInput(input.trigger);
       const created = await this.routines.mutateOwner(owner, clientId, null, {
         ...input,
         action: "create",
         source: "ui",
       });
+      await this.syncRoutineWebhook(owner, String(created.id), created.trigger);
       return this.routines.detailOwner(owner, String(created.id));
     });
 
   createRoutine = (botId: string, clientId: string, input: RoutineMutationInput) =>
     serviceEffect(async () => {
+      this.validateRoutineWebhookInput(input.trigger);
+      const owner = { kind: "bot" as const, id: botId };
       const created = await this.routines.mutate(botId, clientId, null, {
         ...input,
         action: "create",
         source: "ui",
       });
+      await this.syncRoutineWebhook(owner, String(created.id), created.trigger);
       return this.routines.detail(botId, String(created.id));
     });
 
   updateRoutine = (routineId: string, clientId: string, input: RoutineMutationInput) =>
     serviceEffect(async () => {
       const owner = await this.routines.owner(routineId);
+      const previous = await this.routines.detailOwner(owner, routineId);
+      if (input.trigger !== undefined) this.validateRoutineWebhookInput(input.trigger);
       await this.routines.mutateOwner(owner, clientId, null, {
         ...input,
         id: routineId,
         action: "update",
         source: "ui",
       });
-      return this.routines.detailOwner(owner, routineId);
+      const saved = await this.routines.detailOwner(owner, routineId);
+      await this.syncRoutineWebhook(owner, routineId, saved.trigger, previous.trigger);
+      return saved;
     });
 
   routineLifecycle = (
@@ -471,6 +507,15 @@ export class AppService {
         expectedRevision,
         source: "ui",
       });
+      if (action === "pause" || action === "resume") {
+        await this.automationWebhooks.setRoutineWebhookEnabled(
+          routineId,
+          owner,
+          action === "resume"
+        );
+      } else if (action === "delete") {
+        await this.automationWebhooks.removeRoutineWebhook(routineId, owner);
+      }
       return action === "delete" ? result : this.routines.detailOwner(owner, routineId);
     });
 

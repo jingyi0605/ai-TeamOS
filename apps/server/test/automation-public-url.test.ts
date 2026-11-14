@@ -1,6 +1,32 @@
 import { expect, test } from "bun:test";
 import { AutomationWebhooksService } from "../src/services/automation-webhooks";
 
+test("automation webhook service reads the current OutcomeGo public URL environment setting", () => {
+  const previousOutcomeGo = process.env.OUTCOMEGO_PUBLIC_URL;
+  const previousOpenTeam = process.env.OPENTEAM_PUBLIC_URL;
+  process.env.OUTCOMEGO_PUBLIC_URL = "https://configured.example.test";
+  delete process.env.OPENTEAM_PUBLIC_URL;
+  try {
+    const service = new AutomationWebhooksService(
+      {
+        automationWebhookSettings: { findUnique: async () => null },
+        automationWebhook: { findMany: async () => [] },
+      } as unknown as ConstructorParameters<typeof AutomationWebhooksService>[0],
+      async () => {}
+    );
+    expect(service.publicUrlView()).toMatchObject({
+      publicUrl: "https://configured.example.test",
+      source: "environment",
+      valid: true,
+    });
+  } finally {
+    if (previousOutcomeGo === undefined) delete process.env.OUTCOMEGO_PUBLIC_URL;
+    else process.env.OUTCOMEGO_PUBLIC_URL = previousOutcomeGo;
+    if (previousOpenTeam === undefined) delete process.env.OPENTEAM_PUBLIC_URL;
+    else process.env.OPENTEAM_PUBLIC_URL = previousOpenTeam;
+  }
+});
+
 test("automation webhook public URL settings override the environment and apply immediately", async () => {
   let saved: string | null = null;
   const checked: string[] = [];

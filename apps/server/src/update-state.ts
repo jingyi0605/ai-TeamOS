@@ -69,6 +69,24 @@ const stateToolArguments = {
 const eventPayload = (value: Record<string, unknown>): Prisma.InputJsonValue =>
   JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 
+const sanitizeRoutineToolResult = (result: Record<string, unknown>): Record<string, unknown> => {
+  if (
+    result.target !== "routine" ||
+    !result.webhook ||
+    typeof result.webhook !== "object" ||
+    Array.isArray(result.webhook)
+  )
+    return result;
+  const webhook = result.webhook as Record<string, unknown>;
+  return {
+    ...result,
+    webhook: {
+      configured: true,
+      ...(typeof webhook.status === "string" ? { status: webhook.status } : {}),
+    },
+  };
+};
+
 export class DurableStateService {
   constructor(
     private readonly prisma: PrismaClient,
@@ -137,7 +155,7 @@ export class DurableStateService {
         );
       }
       if (existing.status === "completed" && existing.response) {
-        return existing.response as Record<string, unknown>;
+        return sanitizeRoutineToolResult(existing.response as Record<string, unknown>);
       }
     } else {
       await this.prisma.idempotencyRecord.create({
@@ -151,7 +169,9 @@ export class DurableStateService {
     }
 
     try {
-      const result = await this.mutate(botId, callId, runId, input, tool);
+      const result = sanitizeRoutineToolResult(
+        await this.mutate(botId, callId, runId, input, tool)
+      );
       await this.agentData.projectBot(botId);
       await this.prisma.$transaction(async (tx) => {
         await tx.event.create({
@@ -248,11 +268,12 @@ export class DurableStateService {
         if (["create", "update"].includes(input.action)) {
           const savedTrigger = savedRoutine.trigger as Record<string, unknown> | undefined;
           if (this.triggerIsWebhook(savedTrigger)) {
-            result.webhook = await this.automationWebhooks.ensureRoutineWebhook(
+            const webhook = await this.automationWebhooks.ensureRoutineWebhook(
               String(savedRoutine.id),
               owner,
               input.webhook
             );
+            result.webhook = { configured: true, status: webhook.status };
           } else if (previous?.trigger && this.triggerIsWebhook(previous.trigger)) {
             await this.automationWebhooks.removeRoutineWebhook(String(savedRoutine.id), owner);
           }
@@ -315,7 +336,8 @@ export class DurableStateService {
       enabled: routine.enabled, schedule: routine.schedule, trigger: routine.trigger, prompt: routine.prompt,
     };
     if (routine.trigger && this.triggerIsWebhook(routine.trigger) && this.automationWebhooks) {
-      result.webhook = await this.automationWebhooks.routineWebhook(routine.id, owner);
+      const webhook = await this.automationWebhooks.routineWebhook(routine.id, owner);
+      if (webhook) result.webhook = { configured: true, status: webhook.status };
     }
     return result;
   }
