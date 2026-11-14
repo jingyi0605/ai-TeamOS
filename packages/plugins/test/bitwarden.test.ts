@@ -25,7 +25,8 @@ test("Bitwarden packages a portable main/computerUse skill, five runtime fields 
   const imported = importPackage(exportPackage(plugin)).definition;
   for (const file of ["bw.sh", "bw.py", "ensure-cli.sh"])
     expect(imported.files?.[`skills/bitwarden/scripts/${file}`]).toBeTruthy();
-  expect(plugin.skills[0]!.body).toContain("secret: true");
+  expect(plugin.skills[0]!.body).toContain("browserReference");
+  expect(plugin.skills[0]!.body).toContain("不会把值返回到对话上下文");
   expect(plugin.skills[0]!.body).toContain("RequestBitwardenReadApproval");
   expect(plugin.skills[0]!.body).toContain("每个 item、每次任务");
   expect(plugin.skills[0]!.body).toContain("多个候选");

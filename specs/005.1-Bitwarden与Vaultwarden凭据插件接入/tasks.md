@@ -291,9 +291,9 @@
 
 - [x] 3.3 验证浏览器 secret fill 和 direct read 行为
   - 状态：DONE
-  - 证据：Bitwarden protected runtime fields 已从普通 `processEnvironment` 过滤；服务端 `BitwardenReadApproval`、widget 响应、一次性 read/search lease 和 Computer first-party tools 已接入，Skill 不再指导直接 Shell 读取。插件、SDK、server、computer typecheck 和 wrapper 回归测试通过。
-  - 这一步到底做什么：用安全 fixture 验证 Bot 只能在服务端授权后读取字段，也能把字段送入浏览器填充，同时不把值出现在普通进程环境、snapshot 或错误摘要。
-  - 做完你能看到什么：Bitwarden 的用户体验与 1Password 一致，且失败状态可被正确报告。
+  - 证据：Bitwarden protected runtime fields 已从普通 `processEnvironment` 过滤；服务端 `BitwardenReadApproval`、widget 响应、一次性 read/search lease 和 Computer first-party tools 已接入，Skill 不再指导直接 Shell 读取。Computer 只向模型返回短时 `browserReference`，并在任务结束或 TTL 到期时清理环境变量和浏览器私有值。
+  - 这一步到底做什么：用安全 fixture 验证 Bot 只能在服务端授权后读取字段，Computer 能把字段写入短时环境变量并通过浏览器私有路径填充，同时不把值出现在模型上下文、普通进程环境、snapshot 或错误摘要。
+  - 做完你能看到什么：Bitwarden 的用户体验与 1Password 一致，且 credential value 不会进入对话上下文。
   - 先依赖什么：3.2
   - 开始前先看：
     - `requirements.md` 需求 5、需求 6、需求 7
@@ -309,7 +309,7 @@
     1. unique hostname 时必须先通过服务端 widget 授权，再依次读取 username/password/TOTP。
     2. 多匹配时必须由用户选择，pending/denied/expired 或错误 item 均不能读取。
     3. 普通 Shell 无法看到 `BW_*`，lease 只能由 Computer 私有路径消费一次。
-    3. secret fill 后页面观察结果、Shell stderr 和失败重试文本不暴露值。
+    4. secret fill 后页面观察结果、Shell stderr 和失败重试文本不暴露值。
   - 怎么验证：
     - computer browser tests
     - fake login page end-to-end fixture
@@ -412,7 +412,7 @@
   - 这一步先不做什么：不承诺未验证的 Vaultwarden 版本，不写真实连接地址或 secret。
   - 怎么算完成：
     1. 文档解释 API Key、主密码、只读 Collection、Bot computer 网络和 TLS。
-    2. 文档说明读取值可能进入当前 Bot 模型上下文。
+    2. 文档说明读取值只进入 Computer 短时环境变量和浏览器私有写入路径，并在任务结束或 TTL 到期时清理。
     3. 文档链接和命令与最终实现一致。
   - 怎么验证：
     - Markdown link/path check

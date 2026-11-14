@@ -112,12 +112,12 @@ Vaultwarden 提供与 Bitwarden 客户端生态兼容的自托管密码库。用
 2. WHEN 存在一个精确 hostname 匹配项 THEN Skill SHALL 选择该 item，并只读取完成任务所需的 username、password 或 TOTP 字段。
 3. WHEN 存在多个候选项 THEN Skill SHALL 优先使用完整 URI 和 hostname 匹配；仍然不唯一时只返回不含 secret 的标题、hostname 和 item 标识摘要，要求用户明确选择或报告歧义。
 4. WHEN 用户提供显式 item id THEN Skill SHALL 读取该 item，但仍需校验其类型为 Login 并拒绝读取不支持的项目类型。
-5. WHEN 用户要求直接查看密码、用户名或 TOTP THEN Bot SHALL 先发送聊天问题 widget 请求读取所选 item 的授权，只有获得批准后才能调用包装脚本并在当前任务中使用结果；该值可以进入当前 Bot 模型上下文，行为与现有 1Password Skill 一致。
+5. WHEN 用户要求直接查看密码、用户名或 TOTP THEN Bot SHALL 先发送聊天问题 widget 请求读取所选 item 的授权，只有获得批准后才能调用包装脚本并在当前任务中使用结果；credential value SHALL 只进入 Computer 私有环境和浏览器写入路径，不得进入 Bot 模型上下文、聊天消息或终端输出。
 6. WHEN 本次任务首次读取某个 item 的字段 THEN 授权 SHALL 在本次任务剩余时间内适用于该 item；更换 item 必须重新授权，已授权 item 的后续字段不重复询问。
 7. WHEN `ReadBitwardenCredential` is called without a matching server-side approved `BitwardenReadApproval` and current-task reference THEN Server SHALL reject the call before exposing protected runtime fields, regardless of Skill instructions or model arguments.
-8. WHEN the user dismisses, denies, or an approval lease expires THEN Server SHALL reject every credential read for that approval and SHALL NOT inject `BW_*` into a normal Shell.
+8. WHEN the user dismisses, denies, or an approval lease expires THEN Server SHALL reject every credential read for that approval and SHALL NOT inject `BW_*` into a normal Shell. Any approved field value held by Computer SHALL be removed when the task ends or its short TTL expires.
 9. WHEN 匹配项不存在、类型不支持或字段为空 THEN Skill SHALL 返回明确缺失原因，不猜测其他项目，也不暴露其他搜索结果中的密码。
-10. WHEN 读取完成 THEN Skill SHALL 不把完整 item JSON、未请求字段或 Vault 中其他项目写入用户消息、插件活动日志或诊断日志。
+10. WHEN 读取完成 THEN Skill SHALL 不把完整 item JSON、未请求字段、credential value 或 Vault 中其他项目写入用户消息、模型上下文、插件活动日志或诊断日志。
 
 ### 需求 6：浏览器与桌面登录工作流
 
@@ -131,6 +131,7 @@ Vaultwarden 提供与 Bitwarden 客户端生态兼容的自托管密码库。用
 4. WHEN 页面出现 SSO、Passkey、交互式 MFA、CAPTCHA 或 Bitwarden 本身需要人工批准 THEN Bot SHALL 通过现有人工接管流程处理，不伪造已完成登录。
 5. WHEN 浏览器任务完成 THEN System SHALL 继续使用现有浏览器 secret fill 标记和结果脱敏逻辑。
 6. WHEN 浏览器任务失败或中断 THEN System SHALL 报告实际状态，不重复提交密码或 OTP，不自动重试可能导致锁定的登录流程。
+7. WHEN 用户明确打开并授权 HTTP 登录页面 THEN System SHALL 允许在同一目标 hostname 内使用浏览器安全填充；HTTP 跨站 frame 仍 SHALL 被拒绝。
 
 ### 需求 7：只读边界与凭据安全
 
@@ -208,7 +209,7 @@ Vaultwarden 提供与 Bitwarden 客户端生态兼容的自托管密码库。用
 1. 主密码、Client Secret、session key 和真实凭据值不得进入插件包、生成 registry、环境示例文件、Git 记录或公开配置响应。
 2. SecretRedactor 必须覆盖完整值、跨 chunk 值和命令 stderr；测试必须覆盖包含换行和 UTF-8 字符的 secret。
 3. server URL 和 email 虽然可以是非 secret runtime field，但必须与其它 Bitwarden protected runtime field 一样，不得进入普通 Shell、MCP process、主模型系统 prompt 或用户信息；它们只在服务端授权的 Computer 内部 CLI 进程环境中出现。
-4. 插件文档必须建议专用 Vaultwarden 用户和最小 Collection 权限，并说明 Bot 读取的凭据可能进入当前模型上下文。
+4. 插件文档必须建议专用 Vaultwarden 用户和最小 Collection 权限，并说明 Bot 读取的凭据只进入 Computer 短时环境变量和浏览器私有写入路径。
 
 ### 非功能需求 4：可维护性
 

@@ -9,4 +9,4 @@
 7. `sync_failed`：修复 provider 网络后重试；同步失败不会返回旧凭据。
 8. `item_not_found`、`item_ambiguous`、`field_missing`：确认 exact hostname、完整 URI、显式 item UUID、Login 类型和 Collection 权限。
 
-日志和活动只保留阶段、错误类别、退出状态和 server origin。direct read 值可能进入当前模型上下文及现有 Shell 会话历史，行为与 1Password 一致。
+日志和活动只保留阶段、错误类别、退出状态和 server origin。direct read 值只在 Computer 的短时环境变量和浏览器私有写入路径中存在；模型上下文、聊天消息和 Shell 会话历史只包含不含值的 `browserReference` 或脱敏结果。

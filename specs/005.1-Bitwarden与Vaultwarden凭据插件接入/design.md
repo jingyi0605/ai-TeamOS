@@ -197,9 +197,9 @@ plugin:bitwarden)]
 | --- | --- | --- | --- |
 | `status` | 无 | server、登录、解锁、同步状态摘要 | 不输出值 |
 | `search` | hostname/完整 HTTPS URI；`--title <query>` 显式标题查询 | item id、标题、URI hostname 等非 secret 摘要 | 不读取 password |
-| `username` | item id | JSON `{ok, kind, itemId, value}`，仅 username | 仅当前值进入 Bot 结果 |
-| `password` | item id | JSON `{ok, kind, itemId, value}`，仅 password | 仅当前值进入 Bot 结果 |
-| `totp` | item id | JSON `{ok, kind, itemId, value}`，仅 TOTP | 仅当前值进入 Bot 结果 |
+| `username` | item id | Computer 私有 wrapper 内部 JSON `{ok, kind, itemId, value}`；first-party 工具向模型返回 `browserReference` | value 只进入 Computer 私有环境 |
+| `password` | item id | Computer 私有 wrapper 内部 JSON `{ok, kind, itemId, value}`；first-party 工具向模型返回 `browserReference` | value 只进入 Computer 私有环境 |
+| `totp` | item id | Computer 私有 wrapper 内部 JSON `{ok, kind, itemId, value}`；first-party 工具向模型返回 `browserReference` | value 只进入 Computer 私有环境 |
 
 包装层约束：
 
@@ -279,7 +279,7 @@ itemId?: string
 }
 ```
 
-`value` 不得进入插件主动追加的活动或 diagnostic stderr。direct read 结果会进入现有 Shell 终端日志及会话历史，与 1Password 一致；动态读取值不会自动成为全局 process secret。不得承诺这些值不持久化。
+wrapper 的 `value` 只在 Computer 私有执行路径中解析，随后写入带 TTL 的 `OUTCOMEGO_BITWARDEN_*` 环境变量；first-party 工具只返回变量名和 `browserReference`，不返回 value。浏览器 `browser_type` 和 `browser_fill_form` 在写入前解析引用，浏览器结果和页面观察继续使用现有私有值脱敏。任务结束或 TTL 到期时删除环境变量和 Computer 内存中的值。
 
 ## 4. 数据与状态模型
 
@@ -509,7 +509,8 @@ CLI 流程使用独立临时目录和进程内 session：Linux 优先 `/dev/shm`
 - 每次动作均配置、登录、账号验证、解锁、同步；无自动重试。JSON stdout 输出；错误不转发原始 stderr。CLI 输出最多 8 MiB，单命令超时 90 秒；候选最多 50 条，超过时要求缩小查询。
 - 只有 CLI 返回明确网络/TLS/交互认证信息时才细分；否则返回阶段错误，不猜测账号存在性或服务端内部原因。
 - wrapper 仍集中约束 CLI 动作，但受保护配置不会进入普通插件进程环境。服务端 `BitwardenReadApproval` 绑定 bot、channel、widget、item 和当前唤醒引用；Computer 私有调用消费 lease 后才执行 wrapper。
-- direct read 可进入当前模型、现有会话和终端记录；浏览器调用必须设置 `secret: true`。现有浏览器脱敏覆盖标记控件，不能承诺移除网站任意反射文本。
+- direct read 的 credential value 不进入当前模型、现有会话或终端记录；模型只能看到 `browserReference`，浏览器写入路径负责解析和脱敏。现有浏览器脱敏覆盖标记控件，不能承诺移除网站任意反射文本。
+- 浏览器目标页面可以是用户明确授权的 HTTP 页面；写入边界仍按目标 hostname 校验，HTTP 跨站 frame 不允许承载凭据。
 - Vaultwarden 真实版本、远程 computer 网络与真实网页登录未实测时标记 PENDING；交付独立验收脚本，不启动开发服务或重建远程 computer。
 
 复核与来源覆盖见 [规格复核与覆盖矩阵](docs/20261113-规格复核与覆盖矩阵.md)。
