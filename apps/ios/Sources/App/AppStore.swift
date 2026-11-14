@@ -95,6 +95,7 @@ final class AppStore {
     }
   }
   private(set) var api: API?
+  let mobileNetworkProvider = MobileNetworkProvider()
   private(set) var liveVoiceSession: LiveVoiceSession?
   /// The group call in progress: its channel and the bot that answers when nobody is named.
   private(set) var liveVoiceGroup: LiveVoiceGroup?
@@ -837,6 +838,7 @@ final class AppStore {
   }
   func setForeground(_ active: Bool) {
     foreground = active
+    mobileNetworkProvider.setForeground(active)
     #if canImport(UIKit)
       NativeNotifications.shared.setForeground(active)
     #endif
@@ -2050,6 +2052,7 @@ final class AppStore {
     busy.insert("sign-out")
     defer { busy.remove("sign-out") }
     do {
+      mobileNetworkProvider.stop(revokeConsent: false)
       #if canImport(UIKit)
         try await NativeNotifications.shared.retire()
       #endif

@@ -136,7 +136,8 @@ struct SettingsView: View {
           case .model: ModelSettingsView()
           case .voiceNotes: VoiceNotesSettingsView()
           case .realtimeVoice: RealtimeVoiceSettingsView()
-          case .server: BrowserNetworkSettingsView { path.append($0) }
+          case .server: BrowserNetworkSettingsView(
+            navigate: { path.append($0) }, provider: store.mobileNetworkProvider)
           case .updates: UpdatesSettingsView()
           case .devices: ManageDevicesView()
           }

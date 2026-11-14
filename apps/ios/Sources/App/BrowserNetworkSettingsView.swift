@@ -2,6 +2,7 @@ import SwiftUI
 
 struct BrowserNetworkSettingsView: View {
   var navigate: (SettingsRoute) -> Void
+  @ObservedObject var mobileProvider: MobileNetworkProvider
   @Environment(AppStore.self) private var store
   @Environment(\.scenePhase) private var scenePhase
   @State private var view: BrowserNetworkView?
@@ -14,6 +15,13 @@ struct BrowserNetworkSettingsView: View {
   @State private var quality: BrowserNetworkQuality?
   @State private var testing = false
   @State private var qualityFailed = false
+  init(
+    navigate: @escaping (SettingsRoute) -> Void,
+    provider: MobileNetworkProvider
+  ) {
+    self.navigate = navigate
+    _mobileProvider = ObservedObject(wrappedValue: provider)
+  }
   private var order: [String] { draft ?? view?.order ?? ["server"] }
   private var dirty: Bool { draft != nil && draft != view?.order }
 
@@ -60,6 +68,20 @@ struct BrowserNetworkSettingsView: View {
             next.move(fromOffsets: from, toOffset: to)
             edit(next)
           }
+        }
+        Section("This device") {
+          Toggle("Share this device's network", isOn: Binding(
+            get: { mobileProvider.state != .stopped },
+            set: { enabled in
+              if enabled {
+                guard let api = store.api else { return }
+                mobileProvider.start(api: api, allowSharing: true, label: "iPhone")
+              } else {
+                mobileProvider.stop(revokeConsent: true)
+              }
+            }))
+          .accessibilityIdentifier("mobile-network-sharing")
+          Text(mobileProviderStatus).font(.caption).foregroundStyle(.secondary)
         }
         Section {
           if live, let egress, egress.epoch == view.runtime.routeEpoch {
@@ -137,6 +159,17 @@ struct BrowserNetworkSettingsView: View {
       } message: {
         Text("Changing the active connection interrupts browser downloads and connections. Pages stay open; requests are not replayed.")
       }
+  }
+  private var mobileProviderStatus: String {
+    switch mobileProvider.state {
+    case .stopped: return "Network sharing is off."
+    case .enrolling: return "Registering this device…"
+    case .connecting, .reconnecting: return "Connecting to the server…"
+    case .ready: return "Sharing is active while this app is in the foreground."
+    case .unavailable: return "Sharing is temporarily unavailable."
+    case .revoked: return "Sharing authorization was revoked."
+    case .failed(let message): return message
+    }
   }
   private func testConnection() async {
     guard let epoch = view?.runtime.routeEpoch, live, !testing else { return }
