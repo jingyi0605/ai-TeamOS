@@ -233,8 +233,9 @@
 
 ## 阶段 3：Android 前台 Provider
 
-- [x] 3.1 接入 Android KMP framework 和平台 adapter
-  - 状态：DONE
+- [ ] 3.1 接入 Android KMP framework 和平台 adapter
+  - 状态：IN_REVIEW
+  - 当前结果：shared、Android Provider adapter 和 APK 编译通过；完整 `:mobile:androidApp:testDebugUnitTest` 有 64 个测试中的 1 个既有 `AndroidUpdateManifestTest.validSignedManifestIsAccepted` 失败，需单独处理签名 fixture 后才能关闭本任务。
   - 这一步到底做什么：在 Android app 中接入 shared Provider Engine，并实现 OkHttp WebSocket、TCP socket、HTTP enrollment 和加密存储 adapter。
   - 做完你能看到什么：Android 可以在测试入口中启动 Provider Engine，使用真实 server/session 完成 enrollment 和 device channel。
   - 先依赖什么：2.5
