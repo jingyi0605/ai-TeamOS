@@ -152,15 +152,49 @@ class LiveFeatureGateway(private val client: MobileFeatureApi) : FeatureGateway 
     override suspend fun signOut(): Result<Unit> = Result.success(Unit)
 
     override suspend fun loadSettings(): Result<AppSettings> = runCatching {
-        val timeZone = client.request(HttpMethod.GET, "/api/v0/time-zone").string("timeZone", "timezone").ifBlank { "UTC" }
+        val tzResponse = client.request(HttpMethod.GET, "/api/v0/time-zone")
+        val detectedTimeZone = (tzResponse["detectedTimeZone"] as? JsonPrimitive)
+            ?.takeUnless { it is JsonNull }?.contentOrNull?.takeIf { it.isNotBlank() }
+        val overrideTimeZone = (tzResponse["overrideTimeZone"] as? JsonPrimitive)
+            ?.takeUnless { it is JsonNull }?.contentOrNull?.takeIf { it.isNotBlank() }
+        val timeZone = tzResponse.string("timeZone", "timezone")
+            .ifBlank { overrideTimeZone ?: detectedTimeZone ?: java.util.TimeZone.getDefault().id.ifBlank { "UTC" } }
         val smartEnabled = client.request(HttpMethod.GET, "/api/v0/notification-preferences").boolean("smartEnabled", true)
-        AppSettings(timeZone = timeZone, notifications = NotificationPreferences(smartEnabled, smartEnabled, smartEnabled))
+        AppSettings(
+            timeZone = timeZone,
+            notifications = NotificationPreferences(smartEnabled, smartEnabled, smartEnabled),
+            detectedTimeZone = detectedTimeZone,
+            overrideTimeZone = overrideTimeZone,
+        )
     }
 
     override suspend fun saveSettings(settings: AppSettings): Result<AppSettings> = runCatching {
-        client.request(HttpMethod.PATCH, "/api/v0/time-zone", buildJsonObject { put("timeZone", settings.timeZone) })
+        val detected = settings.detectedTimeZone?.takeIf { it.isNotBlank() }
+            ?: java.util.TimeZone.getDefault().id.takeIf { it.isNotBlank() }
+        val tzResponse = client.request(
+            HttpMethod.PATCH,
+            "/api/v0/time-zone",
+            buildJsonObject {
+                if (detected != null) put("detectedTimeZone", detected)
+                put("overrideTimeZone", settings.overrideTimeZone?.takeIf { it.isNotBlank() }?.let(::JsonPrimitive) ?: JsonNull)
+            },
+        )
         client.request(HttpMethod.PATCH, "/api/v0/notification-preferences", buildJsonObject { put("smartEnabled", settings.notifications.messages || settings.notifications.mentions || settings.notifications.routineRuns) })
-        settings
+        val returnedTimeZone = tzResponse.string("timeZone", "timezone").ifBlank { settings.timeZone }
+        val returnedDetected = (tzResponse["detectedTimeZone"] as? JsonPrimitive)
+            ?.takeUnless { it is JsonNull }?.contentOrNull?.takeIf { it.isNotBlank() } ?: detected
+        val hasOverrideKey = tzResponse.containsKey("overrideTimeZone")
+        val returnedOverride = if (hasOverrideKey) {
+            (tzResponse["overrideTimeZone"] as? JsonPrimitive)
+                ?.takeUnless { it is JsonNull }?.contentOrNull?.takeIf { it.isNotBlank() }
+        } else {
+            settings.overrideTimeZone
+        }
+        settings.copy(
+            timeZone = returnedTimeZone,
+            detectedTimeZone = returnedDetected,
+            overrideTimeZone = returnedOverride,
+        )
     }
 
     override suspend fun listProviderConnections(): Result<List<ProviderConnection>> = runCatching {
@@ -417,8 +451,15 @@ private fun RoutineSchedule.serverSchedule(): String {
 }
 
 private fun parseSchedule(value: String, timeZone: String): RoutineSchedule {
-    if (value.startsWith("@every")) {
-        val match = Regex("@every\\s+(\\d+)\\s*([mhdw])").find(value)
+    var expr = value.trim()
+    var resolvedZone = timeZone
+    val tzMatch = Regex("^(?:CRON_TZ|TZ)=(\\S+)\\s+(.+)$").find(expr)
+    if (tzMatch != null) {
+        if (tzMatch.groupValues[1].isNotBlank()) resolvedZone = tzMatch.groupValues[1]
+        expr = tzMatch.groupValues[2].trim()
+    }
+    if (expr.startsWith("@every")) {
+        val match = Regex("@every\\s+(\\d+)\\s*([mhdw])").find(expr)
         if (match != null) {
             val unit = when (match.groupValues[2]) {
                 "m" -> RoutineSchedule.IntervalUnit.Minutes
@@ -426,14 +467,14 @@ private fun parseSchedule(value: String, timeZone: String): RoutineSchedule {
                 "w" -> RoutineSchedule.IntervalUnit.Weeks
                 else -> RoutineSchedule.IntervalUnit.Days
             }
-            return RoutineSchedule(RoutineSchedule.Frequency.Interval, intervalAmount = match.groupValues[1].toInt(), intervalUnit = unit, timeZone = timeZone)
+            return RoutineSchedule(RoutineSchedule.Frequency.Interval, intervalAmount = match.groupValues[1].toInt(), intervalUnit = unit, timeZone = resolvedZone)
         }
     }
-    val fields = value.trim().split(Regex("\\s+"))
+    val fields = expr.split(Regex("\\s+"))
     val minute = fields.getOrNull(0)?.toIntOrNull()
     val hour = fields.getOrNull(1)?.toIntOrNull()
     if (fields.size == 5 && minute != null && fields[1] == "*") {
-        return RoutineSchedule(RoutineSchedule.Frequency.Hourly, timeMinutes = minute, timeZone = timeZone)
+        return RoutineSchedule(RoutineSchedule.Frequency.Hourly, timeMinutes = minute, timeZone = resolvedZone)
     }
     if (fields.size == 5 && minute != null && hour != null) {
         val frequency = when {
@@ -442,9 +483,9 @@ private fun parseSchedule(value: String, timeZone: String): RoutineSchedule {
             fields[2] != "*" -> RoutineSchedule.Frequency.Monthly
             else -> RoutineSchedule.Frequency.Daily
         }
-        return RoutineSchedule(frequency, hour * 60 + minute, timeZone, fields[4].toIntOrNull() ?: 1, fields[2].toIntOrNull() ?: 1)
+        return RoutineSchedule(frequency, hour * 60 + minute, resolvedZone, fields[4].toIntOrNull() ?: 1, fields[2].toIntOrNull() ?: 1)
     }
-    return RoutineSchedule(timeZone = timeZone)
+    return RoutineSchedule(timeZone = resolvedZone)
 }
 
 private fun JsonObject.toMemory() = MemoryItem(string("id"), string("title", "name"), string("content", "text"), string("updatedAt"))

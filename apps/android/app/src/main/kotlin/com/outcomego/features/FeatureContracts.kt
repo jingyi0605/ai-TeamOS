@@ -168,6 +168,8 @@ data class AppSettings(
     val timeZone: String = "UTC",
     val haptics: Boolean = true,
     val notifications: NotificationPreferences = NotificationPreferences(),
+    val detectedTimeZone: String? = null,
+    val overrideTimeZone: String? = null,
 ) {
     enum class Appearance { System, Light, Dark }
     enum class Accent { Black, Blue, Purple, Green }

@@ -1496,19 +1496,32 @@ class AppViewModel @JvmOverloads constructor(
     }
 
     fun saveSettings(settings: AppSettings) {
-        settingsPreferences.edit()
-            .putString("appearance", settings.appearance.name)
-            .putString("accent", settings.accent.name)
-            .putString("language", settings.language.name)
-            .putString("timeZone", settings.timeZone)
-            .putBoolean("haptics", settings.haptics)
-            .putBoolean("notifications.messages", settings.notifications.messages)
-            .putBoolean("notifications.mentions", settings.notifications.mentions)
-            .putBoolean("notifications.routineRuns", settings.notifications.routineRuns)
-            .apply()
+        settingsPreferences.edit().apply {
+            putString("appearance", settings.appearance.name)
+            putString("accent", settings.accent.name)
+            putString("language", settings.language.name)
+            putString("timeZone", settings.timeZone)
+            if (settings.overrideTimeZone != null) {
+                putString("overrideTimeZone", settings.overrideTimeZone)
+            } else {
+                remove("overrideTimeZone")
+            }
+            putBoolean("haptics", settings.haptics)
+            putBoolean("notifications.messages", settings.notifications.messages)
+            putBoolean("notifications.mentions", settings.notifications.mentions)
+            putBoolean("notifications.routineRuns", settings.notifications.routineRuns)
+        }.apply()
         mutableState.update { it.copy(features = it.features.copy(settings = settings)) }
         runFeatureOperation {
             activeFeatureGateway.saveSettings(settings).onSuccess { saved ->
+                settingsPreferences.edit().apply {
+                    putString("timeZone", saved.timeZone)
+                    if (saved.overrideTimeZone != null) {
+                        putString("overrideTimeZone", saved.overrideTimeZone)
+                    } else {
+                        remove("overrideTimeZone")
+                    }
+                }.apply()
                 mutableState.update { it.copy(features = it.features.copy(settings = saved)) }
             }.onFailure(::reportFeatureFailure)
         }
@@ -1684,7 +1697,7 @@ class AppViewModel @JvmOverloads constructor(
                         appearance = appearance,
                         accent = accent,
                         language = language,
-                        timeZone = settingsPreferences.getString("timeZone", value.timeZone) ?: value.timeZone,
+                        timeZone = value.timeZone.ifBlank { settingsPreferences.getString("timeZone", null) ?: "UTC" },
                         haptics = settingsPreferences.getBoolean("haptics", value.haptics),
                         notifications = notifications,
                     )))

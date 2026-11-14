@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonPrimitive
@@ -194,6 +195,64 @@ class LiveFeatureGatewayTest {
     }
 
     @Test
+    fun settingsLoadAndSaveUseServerTimeZoneOverrideAndDetectedContract() = runBlocking {
+        val client = RecordingFeatureClient(
+            responsesByPath = mapOf(
+                "/api/v0/time-zone" to buildJsonObject {
+                    put("detectedTimeZone", "America/Los_Angeles")
+                    put("overrideTimeZone", JsonNull)
+                    put("timeZone", "America/Los_Angeles")
+                },
+                "/api/v0/notification-preferences" to buildJsonObject { put("smartEnabled", true) },
+            ),
+        )
+        val gateway = LiveFeatureGateway(client)
+
+        val loaded = gateway.loadSettings().getOrThrow()
+        assertEquals("America/Los_Angeles", loaded.timeZone)
+        assertEquals("America/Los_Angeles", loaded.detectedTimeZone)
+        assertEquals(null, loaded.overrideTimeZone)
+
+        gateway.saveSettings(loaded.copy(timeZone = "Asia/Tokyo", overrideTimeZone = "Asia/Tokyo")).getOrThrow()
+        val patchBody = client.bodiesByPath["/api/v0/time-zone"]
+        assertEquals("Asia/Tokyo", patchBody?.get("overrideTimeZone")?.jsonPrimitive?.contentOrNull)
+        assertEquals("America/Los_Angeles", patchBody?.get("detectedTimeZone")?.jsonPrimitive?.contentOrNull)
+
+        gateway.saveSettings(loaded.copy(timeZone = "America/Los_Angeles", overrideTimeZone = null)).getOrThrow()
+        val autoPatchBody = client.bodiesByPath["/api/v0/time-zone"]
+        assertTrue(autoPatchBody?.get("overrideTimeZone") is JsonNull)
+    }
+
+    @Test
+    fun loadRoutinesParsesCronTzPrefixFromServerSchedule() = runBlocking {
+        val client = RecordingFeatureClient(
+            response = buildJsonObject {
+                put(
+                    "routines",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("id", "r1")
+                                put("title", "Standup")
+                                put("prompt", "Summarize")
+                                put("schedule", "CRON_TZ=Asia/Tokyo 30 9 * * 1-5")
+                                put("timeZone", "UTC")
+                            },
+                        )
+                    },
+                )
+            },
+        )
+        val gateway = LiveFeatureGateway(client)
+
+        val routines = gateway.listRoutines("bot-1").getOrThrow()
+        assertEquals(1, routines.size)
+        assertEquals("Asia/Tokyo", routines.first().schedule.timeZone)
+        assertEquals(RoutineSchedule.Frequency.Weekdays, routines.first().schedule.frequency)
+        assertEquals(9 * 60 + 30, routines.first().schedule.timeMinutes)
+    }
+
+    @Test
     fun oauthCallbackUsesTheManualServerCompletionContract() = runBlocking {
         val client = RecordingFeatureClient()
 
@@ -303,9 +362,11 @@ class LiveFeatureGatewayTest {
         var lastBody: JsonObject? = null
         var downloaded = false
         val requests = mutableListOf<Pair<HttpMethod, String>>()
+        val bodiesByPath = mutableMapOf<String, JsonObject?>()
 
         override suspend fun request(method: HttpMethod, path: String, body: JsonObject?): JsonObject {
             requests += method to path
+            bodiesByPath[path] = body
             lastMethod = method
             lastPath = path
             lastBody = body
