@@ -170,6 +170,7 @@ class AndroidNetworkProviderForegroundService : android.app.Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private lateinit var controller: AndroidNetworkProviderController
     private lateinit var networkMonitor: AndroidNetworkMonitor
+    private var notificationStatus: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -285,6 +286,8 @@ class AndroidNetworkProviderForegroundService : android.app.Service() {
             ProviderState.FAILED -> "Needs attention"
             ProviderState.STOPPED -> "Stopped"
         }
+        if (notificationStatus == status) return
+        notificationStatus = status
         getSystemService(android.app.NotificationManager::class.java)
             ?.notify(NOTIFICATION_ID, notification(status))
     }

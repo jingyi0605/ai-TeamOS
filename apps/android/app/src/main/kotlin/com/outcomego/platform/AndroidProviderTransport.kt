@@ -1,5 +1,6 @@
 package com.outcomego.platform
 
+import android.util.Log
 import com.outcomego.android.data.AndroidOutcomeGoTransport
 import com.outcomego.mobile.core.HttpMethod
 import com.outcomego.mobile.core.MobileRequest
@@ -137,10 +138,16 @@ private class AndroidProviderWebSocket(
 class AndroidProviderTcpDialer : ProviderTcpDialer {
     override suspend fun connect(host: String, port: Int): ProviderTcpConnection {
         val canonical = canonicalHost(host)
-        val addresses = withContext(Dispatchers.IO) {
-            AndroidProviderDns.resolve(canonical)
+        val addresses = try {
+            withContext(Dispatchers.IO) {
+                AndroidProviderDns.resolve(canonical)
+            }
+        } catch (error: Throwable) {
+            Log.w(TAG, "Network egress DNS failed for $canonical:$port", error)
+            throw error
         }
         if (addresses.isEmpty() || addresses.any { !isPublicAddress(it.hostAddress.orEmpty()) }) {
+            Log.w(TAG, "Network egress target blocked by public-address policy: $canonical:$port")
             throw IllegalStateException("destination_blocked")
         }
         var lastError: Throwable? = null
@@ -155,10 +162,19 @@ class AndroidProviderTcpDialer : ProviderTcpDialer {
                 return AndroidProviderTcpConnection(socket)
             } catch (error: Throwable) {
                 lastError = error
+                Log.w(
+                    TAG,
+                    "Network egress TCP dial failed for $canonical:$port via ${address.hostAddress}",
+                    error,
+                )
                 runCatching { socket.close() }
             }
         }
         throw lastError ?: IOException("connect_failed")
+    }
+
+    private companion object {
+        const val TAG = "AndroidNetworkProvider"
     }
 }
 
