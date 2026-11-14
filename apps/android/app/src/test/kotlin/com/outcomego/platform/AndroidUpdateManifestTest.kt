@@ -8,26 +8,26 @@ import kotlinx.serialization.json.Json
 
 class AndroidUpdateManifestTest {
     private val validManifest = AndroidUpdateManifest(
-        version = "1.2.3",
-        versionCode = 10203,
+        version = "0.1.0-beta.14",
+        versionCode = 10014,
         applicationId = "com.outcomego.android",
-        apkUrl = "https://github.com/jingyi0605/OutcomeGo/releases/download/v1.2.3/OutcomeGo-1.2.3-android.apk",
-        sizeBytes = 12345,
-        sha256 = "0000000000000000000000000000000000000000000000000000000000000000",
-        certificateSha256 = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-        signatureBase64 = "MEQCIGQuRBkzvqnBLcKsUkNTK8LyMBh1fErSnShtwPVdgYmCAiBYpmfTiSD9IIcT9t/a3DyUJbaMsAcDdLBHE7PQeBb2tA==",
+        apkUrl = "https://github.com/jingyi0605/OutcomeGo/releases/download/v0.1.0-beta.14/OutcomeGo-0.1.0-beta.14-android.apk",
+        sizeBytes = 24943411,
+        sha256 = "ce9870dc18b67e6788456a57441ca97681db133f72901c66f9894c9e82a4dcf7",
+        certificateSha256 = "6973a9c2170428745f295fb7304cbfe03878e93fd9f58907f0540d96086ed629",
+        signatureBase64 = "MEUCICZdss6odTMF7SbcR8qzkpQGrEOwAGlp7c4B5ODbSn20AiEAxsYkonBKnbil2l9hI2tRRVNYIIZ5SASBWGVkWYH3VTM=",
     )
 
     @Test
     fun canonicalPayloadIsStableAndUsesLowercaseDigests() {
         assertEquals(
-            "version=1.2.3\n" +
-                "versionCode=10203\n" +
+            "version=0.1.0-beta.14\n" +
+                "versionCode=10014\n" +
                 "applicationId=com.outcomego.android\n" +
-                "apkUrl=https://github.com/jingyi0605/OutcomeGo/releases/download/v1.2.3/OutcomeGo-1.2.3-android.apk\n" +
-                "sizeBytes=12345\n" +
-                "sha256=0000000000000000000000000000000000000000000000000000000000000000\n" +
-                "certificateSha256=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff\n",
+                "apkUrl=https://github.com/jingyi0605/OutcomeGo/releases/download/v0.1.0-beta.14/OutcomeGo-0.1.0-beta.14-android.apk\n" +
+                "sizeBytes=24943411\n" +
+                "sha256=ce9870dc18b67e6788456a57441ca97681db133f72901c66f9894c9e82a4dcf7\n" +
+                "certificateSha256=6973a9c2170428745f295fb7304cbfe03878e93fd9f58907f0540d96086ed629\n",
             AndroidUpdateManifestVerifier.canonicalPayload(validManifest),
         )
     }

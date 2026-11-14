@@ -216,7 +216,9 @@ const lazyBudgets: Record<string, number> = {
   // 73,336, 46,419, 40,512 and 36,231.
   pluginDetail: 75_000,
   pluginConnection: 46_800,
-  pluginStudio: 40_900,
+  // The OutcomeGo package name adds a small amount to the package studio's generated closure:
+  // 40,936 bytes on the beta.15 build.
+  pluginStudio: 41_000,
   privateSkills: 37_000,
   settingsMicrophone: 12_000,
   basicMarkdown: 600_000,
@@ -265,8 +267,10 @@ const lazyBudgets: Record<string, number> = {
   // sign-in-or-key step for ChatGPT and Claude, checked keys, and the model select (a
   // select-style trigger with a filtered list, also on "You're already connected");
   // 152,506 with the web search step (a recommended provider, its key and a real check);
-  // 153,026 with the Settings cleanup.
-  onboarding: 158_000,
+  // 153,026 with the Settings cleanup. Beta.15 adds the shared provider icon catalog,
+  // network exit controls, routine webhook copy, and the expanded provider picker assets:
+  // 233,492 bytes measured. Keep the setup flow lazy with modest headroom.
+  onboarding: 235_000,
   // Welcome, server address, and sign-in; loads only while signed out. Measured
   // October closure: 40,306; 44,595 after the QA fixes (cancellable connects, address
   // checks, and the shared layout's guards and styles); 61,766 with the setup screens'
@@ -314,7 +318,9 @@ const lazyBudgets: Record<string, number> = {
   settingsTranscription: 42_300,
   liveVoice: 800_000,
   // Search and Fetch pages with inlined 40 px WebP logos (~10 KB of the total).
-  settingsProviders: 32_000,
+  // Beta.15 adds the shared provider icon catalog, provider status controls, and
+  // localized provider actions: 110,765 bytes measured. Keep this page lazy.
+  settingsProviders: 115_000,
   // Shares lucide's triangle-alert chunk with Providers. The signed-out
   // compatibility guard brings the measured October release closure to 10,250 bytes.
   // Unified server updates with stages, idle confirmation and restart recovery

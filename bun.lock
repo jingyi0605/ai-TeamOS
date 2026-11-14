@@ -13,7 +13,7 @@
     },
     "apps/cli": {
       "name": "@outcomego/cli",
-      "version": "0.1.0-beta.14",
+      "version": "0.1.0-beta.15",
       "bin": {
         "outcomego": "dist/outcomego.js",
       },
@@ -36,7 +36,7 @@
     },
     "apps/computer": {
       "name": "@outcomego/computer",
-      "version": "0.1.0-beta.14",
+      "version": "0.1.0-beta.15",
       "dependencies": {
         "@outcomego/contracts": "workspace:*",
         "@outcomego/plugin-sdk": "workspace:*",
@@ -68,7 +68,7 @@
     },
     "apps/desktop": {
       "name": "@outcomego/desktop",
-      "version": "0.1.0-beta.14",
+      "version": "0.1.0-beta.15",
       "devDependencies": {
         "@outcomego/client-core": "workspace:*",
         "@outcomego/contracts": "workspace:*",
@@ -121,7 +121,7 @@
     },
     "apps/ios": {
       "name": "@outcomego/ios",
-      "version": "0.1.0-beta.14",
+      "version": "0.1.0-beta.15",
       "devDependencies": {
         "@outcomego/contracts": "workspace:*",
         "@outcomego/design-tokens": "workspace:*",
@@ -134,7 +134,7 @@
     },
     "apps/landing": {
       "name": "@outcomego/landing",
-      "version": "0.1.0-beta.14",
+      "version": "0.1.0-beta.15",
       "dependencies": {
         "@outcomego/contracts": "workspace:*",
         "@outcomego/design-tokens": "workspace:*",
@@ -174,7 +174,7 @@
     },
     "apps/server": {
       "name": "@outcomego/server",
-      "version": "0.1.0-beta.14",
+      "version": "0.1.0-beta.15",
       "dependencies": {
         "@outcomego/contracts": "workspace:*",
         "@outcomego/db": "workspace:*",
@@ -195,7 +195,7 @@
     },
     "apps/worker": {
       "name": "@outcomego/worker",
-      "version": "0.1.0-beta.14",
+      "version": "0.1.0-beta.15",
       "dependencies": {
         "@outcomego/contracts": "workspace:*",
         "@outcomego/db": "workspace:*",
@@ -207,14 +207,14 @@
     },
     "packages/client-core": {
       "name": "@outcomego/client-core",
-      "version": "0.1.0-beta.14",
+      "version": "0.1.0-beta.15",
       "dependencies": {
         "@outcomego/contracts": "workspace:*",
       },
     },
     "packages/contracts": {
       "name": "@outcomego/contracts",
-      "version": "0.1.0-beta.14",
+      "version": "0.1.0-beta.15",
       "dependencies": {
         "@outcomego/plugin-sdk": "workspace:*",
         "effect": "3.22.1",
@@ -227,7 +227,7 @@
     },
     "packages/db": {
       "name": "@outcomego/db",
-      "version": "0.1.0-beta.14",
+      "version": "0.1.0-beta.15",
       "dependencies": {
         "@prisma/adapter-pg": "7.10.0",
         "@prisma/client": "7.10.0",
@@ -242,14 +242,14 @@
     },
     "packages/design-tokens": {
       "name": "@outcomego/design-tokens",
-      "version": "0.1.0-beta.14",
+      "version": "0.1.0-beta.15",
       "dependencies": {
         "@outcomego/contracts": "workspace:*",
       },
     },
     "packages/messaging": {
       "name": "@outcomego/messaging",
-      "version": "0.1.0-beta.14",
+      "version": "0.1.0-beta.15",
       "dependencies": {
         "@outcomego/contracts": "workspace:*",
         "@outcomego/db": "workspace:*",
@@ -264,7 +264,7 @@
     },
     "packages/plugin-sdk": {
       "name": "@outcomego/plugin-sdk",
-      "version": "0.1.0-beta.14",
+      "version": "0.1.0-beta.15",
       "dependencies": {
         "ajv": "8.20.0",
         "ajv-formats": "3.0.1",
@@ -280,7 +280,7 @@
     },
     "packages/plugins": {
       "name": "@outcomego/plugins",
-      "version": "0.1.0-beta.14",
+      "version": "0.1.0-beta.15",
       "dependencies": {
         "@outcomego/plugin-sdk": "workspace:*",
         "@huggingface/tokenizers": "0.2.0",
@@ -300,14 +300,14 @@
     },
     "packages/product-core": {
       "name": "@outcomego/product-core",
-      "version": "0.1.0-beta.14",
+      "version": "0.1.0-beta.15",
       "dependencies": {
         "@outcomego/contracts": "workspace:*",
       },
     },
     "packages/shell-jobs": {
       "name": "@outcomego/shell-jobs",
-      "version": "0.1.0-beta.14",
+      "version": "0.1.0-beta.15",
       "dependencies": {
         "@outcomego/contracts": "workspace:*",
         "re2js": "2.8.6",
