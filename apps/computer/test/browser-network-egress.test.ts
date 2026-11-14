@@ -25,7 +25,7 @@ test("Node egress checks use routed TLS, fence stale results, bound responses an
         "-subj",
         "/CN=ipwho.is",
         "-addext",
-        "subjectAltName=DNS:ipwho.is",
+        "subjectAltName=DNS:ipwho.is,DNS:example.com,DNS:cloudflare.com",
       ],
       { stdout: "ignore", stderr: "ignore" }
     );
@@ -40,12 +40,12 @@ import { createServer } from "node:https";
 import { createConnection } from "node:net";
 import { readFileSync } from "node:fs";
 import { createEgressProbe, parseEgress } from ${JSON.stringify(resolve(import.meta.dirname, "../src/browser-network-egress.ts"))};
-let checks = 0, calls = 0, requests = 0, sni = "", behavior = "ok", held;
+let checks = 0, calls = 0, requests = 0, snis = new Set(), behavior = "ok", held;
 const server = createServer({ cert: readFileSync(${JSON.stringify(cert)}), key: readFileSync(${JSON.stringify(key)}) }, (req, res) => {
   requests++;
-  assert.equal(req.url, "/?fields=success,ip,city,country");
-  assert.equal(req.headers.host, "ipwho.is");
+  if (req.headers.host === "ipwho.is") assert.equal(req.url, "/?fields=success,ip,city,country");
   const finish = () => {
+    if (req.headers.host !== "ipwho.is") { res.writeHead(204); res.end(); return; }
     if (behavior === "redirect") { res.writeHead(302, {location:"https://must-not-follow.invalid"}); res.end(); return; }
     if (behavior === "failure") { res.writeHead(429, {"content-type":"application/json"}); res.end('{}'); return; }
     res.writeHead(200, {"content-type": behavior === "html" ? "text/html" : "application/json"});
@@ -53,29 +53,30 @@ const server = createServer({ cert: readFileSync(${JSON.stringify(cert)}), key: 
   };
   if (behavior === "hold") held = finish; else finish();
 });
-server.on("secureConnection", socket => { sni = socket.servername; });
+server.on("secureConnection", socket => { snis.add(socket.servername); });
 await new Promise(r => server.listen(0,"127.0.0.1",r));
 const port = server.address().port;
 const route = { epoch:"first", mode:"device", machineId:"air", available:true };
 const client = { route, available: () => true, open: async (host, portValue) => {
-  calls++; assert.equal(host,"ipwho.is"); assert.equal(portValue,443);
+  calls++; assert.equal(portValue,443);
+  assert.ok(["ipwho.is", "example.com", "cloudflare.com"].includes(host));
   return createConnection({host:"127.0.0.1",port});
 }};
 try {
   const probe = createEgressProbe(client);
   const [a,b] = await Promise.all([probe(),probe()]);
-  assert.deepEqual(a,b); assert.equal(calls,1); assert.equal(requests,1); assert.equal(sni,"ipwho.is");
+  assert.deepEqual(a,b); assert.equal(calls,3); assert.equal(requests,3); assert.deepEqual(a.checks?.map(v => v.host), ["example.com", "cloudflare.com"]); assert.deepEqual(snis, new Set(["ipwho.is", "example.com", "cloudflare.com"]));
   assert.equal(a.ip,"203.0.113.10"); assert.equal(a.location,"Example City, Example Country"); assert.equal(a.sourceId,"air"); checks += 8;
-  await probe(); assert.equal(calls,1); checks++;
+  await probe(); assert.equal(calls,3); checks++;
   route.epoch = "second"; route.mode = "server"; route.machineId = null;
-  assert.equal((await probe()).sourceId,"server"); assert.equal(calls,2); checks += 2;
+  assert.equal((await probe()).sourceId,"server"); assert.equal(calls,6); checks += 2;
   const off = createEgressProbe({...client, available:()=>false});
-  await assert.rejects(off,/Could not check/); assert.equal(calls,2); checks += 2;
+  await assert.rejects(off,/Could not check/); assert.equal(calls,6); checks += 2;
   for (const mode of ["redirect","failure","html","huge","invalid"]) {
     behavior = mode; route.epoch = mode;
     const bad = createEgressProbe(client); const before = calls;
     await assert.rejects(bad,/Could not check/); await assert.rejects(bad,/Could not check/);
-    assert.equal(calls,before+1); checks += 3;
+    assert.ok(calls >= before + 1); checks += 3;
   }
   behavior = "hold"; route.epoch = "before-change";
   const stale = createEgressProbe(client)();

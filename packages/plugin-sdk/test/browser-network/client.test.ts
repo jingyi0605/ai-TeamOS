@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { BrowserNetworkClient } from "../../src/browser-network/client";
+import { BrowserNetworkClient, EarlyTlsRetrySocket } from "../../src/browser-network/client";
 import {
   decodeFrame,
   encodeFrame,
@@ -8,6 +8,7 @@ import {
   parseJson,
   type NetworkRoute,
 } from "../../src/browser-network/protocol";
+import { createServer, createConnection } from "node:net";
 
 test("invalidate discards pending old lease challenges before accepting the new epoch", async () => {
   let oldNonce: string | undefined,
@@ -271,3 +272,61 @@ test("sustained outages retain backoff but a listening relay recovers within the
     server.stop(true);
   }
 }, 18000);
+
+test("TLS early close retries the next resolved address and replays the ClientHello", async () => {
+  const first = createServer((socket) => {
+    socket.on("data", () => socket.destroy());
+  });
+  const second = createServer((socket) => {
+    socket.on("data", () => {
+      socket.write(Buffer.from([22, 3]));
+      setTimeout(() => socket.write(Buffer.from([3, 0, 4, 2, 0, 0, 0])), 1);
+    });
+  });
+  await Promise.all([
+    new Promise<void>((resolve) => first.listen(0, "127.0.0.1", resolve)),
+    new Promise<void>((resolve) => second.listen(0, "127.0.0.1", resolve)),
+  ]);
+  const firstPort = (first.address() as any).port;
+  const secondPort = (second.address() as any).port;
+  const selected: string[] = [];
+  const signal = new AbortController();
+  const socket = new EarlyTlsRetrySocket(
+    [
+      { address: "first", family: 4 },
+      { address: "second", family: 4 },
+    ],
+    signal.signal,
+    (address) =>
+      new Promise((resolve, reject) => {
+        const targetPort = address.address === "first" ? firstPort : secondPort;
+        const connection = createConnection({
+          host: "127.0.0.1",
+          port: targetPort,
+          allowHalfOpen: true,
+        });
+        connection.once("connect", () => resolve(connection));
+        connection.once("error", reject);
+      }),
+    (address) => selected.push(address.address)
+  );
+  try {
+    const response = new Promise<Buffer>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      socket.on("data", (chunk) => {
+        chunks.push(chunk);
+        const value = Buffer.concat(chunks);
+        if (value.length >= 6) resolve(value);
+      });
+      socket.once("error", reject);
+    });
+    socket.write(Buffer.from([22, 3, 3, 0, 4, 1, 0, 0, 0]));
+    expect((await response).subarray(0, 6)).toEqual(Buffer.from([22, 3, 3, 0, 4, 2]));
+    expect(selected).toEqual(["first", "second"]);
+  } finally {
+    signal.abort();
+    socket.destroy();
+    first.close();
+    second.close();
+  }
+});

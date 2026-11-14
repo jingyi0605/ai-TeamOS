@@ -12,9 +12,160 @@ import {
   RECONNECT_MAX_MS,
   type NetworkRoute,
   type OpenTarget,
+  type NetworkDnsDiagnostic,
 } from "./protocol";
-import { dialTarget, NetworkError } from "./policy";
+import {
+  connectTargetAddress,
+  dialTarget,
+  NetworkError,
+  resolveTargetAddresses,
+  type TargetAddress,
+} from "./policy";
 import type { Duplex } from "node:stream";
+import { Duplex as NodeDuplex } from "node:stream";
+import type { Socket } from "node:net";
+
+const looksLikeTlsClientHello = (bytes: Buffer) =>
+  bytes.length >= 6 &&
+  bytes[0] === 22 &&
+  bytes[1] === 3 &&
+  bytes[2]! >= 1 &&
+  bytes[2]! <= 4 &&
+  bytes[5] === 1;
+
+const looksLikeTlsServerResponse = (bytes: Buffer) =>
+  bytes.length >= 6 &&
+  bytes[0] === 22 &&
+  bytes[1] === 3 &&
+  bytes[2]! >= 1 &&
+  bytes[2]! <= 4 &&
+  bytes[5] !== 0;
+
+/**
+ * Keeps the browser's initial TLS bytes and retries another resolved address
+ * when the first connected edge closes before returning a TLS record.
+ */
+export class EarlyTlsRetrySocket extends NodeDuplex {
+  private socket?: Socket;
+  private index = 0;
+  private outbound = Buffer.alloc(0);
+  private inbound = Buffer.alloc(0);
+  private tls = false;
+  private validated = false;
+  private retrying = false;
+  private stopped = false;
+  private finished = false;
+  private resolveReady!: () => void;
+  private rejectReady!: (error: Error) => void;
+  readonly ready: Promise<void>;
+  constructor(
+    private readonly addresses: TargetAddress[],
+    private readonly signal: AbortSignal,
+    private readonly connect: (address: TargetAddress) => Promise<Socket>,
+    private readonly selected: (address: TargetAddress) => void
+  ) {
+    super({ allowHalfOpen: true });
+    this.ready = new Promise((resolve, reject) => {
+      this.resolveReady = resolve;
+      this.rejectReady = reject;
+    });
+    void this.ready.catch(() => {});
+    this.on("error", () => {});
+    signal.addEventListener("abort", () => this.destroy(new NetworkError("request_cancelled")), {
+      once: true,
+    });
+    void this.connectNext();
+  }
+  private attach(socket: Socket) {
+    this.socket = socket;
+    socket.on("data", (chunk) => {
+      const bytes = Buffer.from(chunk);
+      if (!this.validated) {
+        if (!this.tls) this.validated = true;
+        else {
+          this.inbound = Buffer.concat([this.inbound, bytes]).subarray(0, 6);
+          if (looksLikeTlsServerResponse(this.inbound)) this.validated = true;
+        }
+      }
+      this.push(bytes);
+    });
+    socket.once("end", () => {
+      if (this.socket !== socket) return;
+      if (!this.tryRetry()) this.push(null);
+    });
+    socket.once("close", () => {
+      if (this.socket !== socket) return;
+      if (!this.tryRetry() && !this.destroyed) this.push(null);
+    });
+    socket.on("error", () => {
+      if (this.socket !== socket) return;
+      if (!this.tryRetry()) this.destroy(new NetworkError("connect_failed"));
+    });
+    if (this.outbound.length) {
+      socket.write(this.outbound, () => {
+        if (this.finished && this.socket === socket && !socket.destroyed) socket.end();
+      });
+    } else if (this.finished) {
+      socket.end();
+    }
+  }
+  private tryRetry() {
+    if (this.stopped || this.validated || !this.tls || this.index >= this.addresses.length)
+      return false;
+    if (this.retrying) return true;
+    this.retrying = true;
+    this.socket?.destroy();
+    this.socket = undefined;
+    void this.connectNext().finally(() => {
+      this.retrying = false;
+    });
+    return true;
+  }
+  private async connectNext() {
+    if (this.stopped || this.index >= this.addresses.length) {
+      const error = new NetworkError("connect_failed");
+      this.rejectReady(error);
+      if (!this.destroyed) this.destroy(error);
+      return;
+    }
+    const address = this.addresses[this.index++]!;
+    try {
+      const socket = await this.connect(address);
+      if (this.stopped || this.destroyed) {
+        socket.destroy();
+        return;
+      }
+      this.selected(address);
+      this.resolveReady();
+      this.attach(socket);
+    } catch {
+      await this.connectNext();
+    }
+  }
+  override _read() {}
+  override _write(chunk: Buffer, _encoding: BufferEncoding, done: (error?: Error | null) => void) {
+    if (this.destroyed || this.stopped) {
+      done(new NetworkError("connect_failed"));
+      return;
+    }
+    if (!this.validated && this.outbound.length <= 64 * 1024) {
+      this.outbound = Buffer.concat([this.outbound, chunk]);
+      if (!this.tls) this.tls = looksLikeTlsClientHello(this.outbound);
+    }
+    if (this.socket && !this.socket.destroyed) this.socket.write(chunk, done);
+    else done();
+  }
+  override _final(done: (error?: Error | null) => void) {
+    this.finished = true;
+    if (this.socket && !this.socket.destroyed) this.socket.end();
+    done();
+  }
+  override _destroy(error: Error | null, done: (error?: Error | null) => void) {
+    this.stopped = true;
+    this.socket?.destroy();
+    done(error);
+  }
+}
 
 /** Reconnecting main-process/service client. Lease expiry is anchored to request time. */
 export class BrowserNetworkClient {
@@ -65,6 +216,8 @@ export class BrowserNetworkClient {
       machineId?: string;
       deploymentId?: string;
       dial?: (target: OpenTarget, signal: AbortSignal) => Promise<Duplex>;
+      resolver?: (route: NetworkRoute) => string;
+      diagnostic?: (diagnostic: NetworkDnsDiagnostic) => void;
       changed?: () => void;
     }
   ) {}
@@ -278,7 +431,44 @@ export class BrowserNetworkClient {
       this.directDials.add(controller);
       let socket: Duplex;
       try {
-        socket = await dialTarget(target, controller.signal);
+        const diagnostic: NetworkDnsDiagnostic = {
+          host,
+          port,
+          resolver: this.options.resolver?.(route) ?? "system",
+          addresses: [] as string[],
+          selectedAddress: null as string | null,
+          routeEpoch: route.epoch,
+          status: "failed",
+          checkedAt: new Date().toISOString(),
+        };
+        const addresses = await resolveTargetAddresses(target, controller.signal, {
+          resolver: diagnostic.resolver,
+          onResolved: (event) => {
+            diagnostic.addresses = event.addresses.map((value) => value.address);
+          },
+        });
+        if (port === 443 && addresses.length > 1) {
+          const retrySocket = new EarlyTlsRetrySocket(
+            addresses.slice(0, 8),
+            controller.signal,
+            (address) => connectTargetAddress(target, address, controller.signal),
+            (address) => {
+              diagnostic.selectedAddress = address.address;
+              diagnostic.status = "connected";
+              diagnostic.checkedAt = new Date().toISOString();
+              this.options.diagnostic?.(diagnostic);
+            }
+          );
+          socket = retrySocket;
+          await retrySocket.ready;
+        } else {
+          const address = addresses[0]!;
+          socket = await connectTargetAddress(target, address, controller.signal);
+          diagnostic.selectedAddress = address.address;
+          diagnostic.status = "connected";
+          diagnostic.checkedAt = new Date().toISOString();
+          this.options.diagnostic?.(diagnostic);
+        }
       } finally {
         this.directDials.delete(controller);
         signal?.removeEventListener("abort", abort);

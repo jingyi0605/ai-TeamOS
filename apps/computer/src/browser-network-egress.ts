@@ -2,9 +2,14 @@ import { Agent, request } from "node:https";
 import { connect } from "node:tls";
 import { isIP } from "node:net";
 import type { Duplex } from "node:stream";
-import type { NetworkEgress, NetworkRoute } from "@outcomego/plugin-sdk/browser-network/protocol";
+import type {
+  NetworkEndpointCheck,
+  NetworkEgress,
+  NetworkRoute,
+} from "@outcomego/plugin-sdk/browser-network/protocol";
 
 const HOST = "ipwho.is";
+const SECONDARY_HOSTS = ["example.com", "cloudflare.com"];
 const FAILURE = "Could not check browser exit connection";
 export function parseEgress(body: string): Pick<NetworkEgress, "ip" | "location"> {
   const value = JSON.parse(body);
@@ -85,11 +90,16 @@ export function createEgressProbe(client: {
             req.end();
           });
           if (!client.available() || client.route?.epoch !== epoch) throw new Error(FAILURE);
+          const checks = await Promise.all(
+            SECONDARY_HOSTS.map((host) => checkEndpoint(client, host))
+          );
+          if (!checks.some((check) => check.ok)) throw new Error(FAILURE);
           return {
             ...parseEgress(body),
             epoch,
             sourceId: route.mode === "server" ? "server" : route.machineId!,
             checkedAt: new Date().toISOString(),
+            checks,
           };
         })();
         const value = await Promise.race([
@@ -119,4 +129,46 @@ export function createEgressProbe(client: {
     pending = { epoch, result };
     return result;
   };
+}
+
+async function checkEndpoint(
+  client: {
+    open(host: string, port: number): Promise<Duplex>;
+  },
+  host: string
+): Promise<NetworkEndpointCheck> {
+  let raw: Duplex | undefined;
+  let socket: ReturnType<typeof connect> | undefined;
+  try {
+    raw = await client.open(host, 443);
+    socket = connect({ socket: raw, servername: host, ALPNProtocols: ["http/1.1"] });
+    const status = await new Promise<number>((resolve, reject) => {
+      let data = "";
+      const timer = setTimeout(() => reject(new Error("timeout")), 5000);
+      const finish = (error?: Error, code?: number) => {
+        clearTimeout(timer);
+        error ? reject(error) : resolve(code!);
+      };
+      socket!.once("secureConnect", () => {
+        socket!.write(
+          `HEAD / HTTP/1.1\r\nHost: ${host}\r\nConnection: close\r\nUser-Agent: OutcomeGo/egress-check\r\n\r\n`
+        );
+      });
+      socket!.on("data", (chunk: Buffer) => {
+        data += chunk.toString("latin1");
+        const line = data.match(/^HTTP\/\d(?:\.\d)?\s+(\d{3})\b/);
+        if (line) finish(undefined, Number(line[1]));
+      });
+      socket!.once("error", (error: Error) => finish(error));
+      socket!.once("close", () => {
+        if (!data.match(/^HTTP\/\d(?:\.\d)?\s+\d{3}\b/)) finish(new Error("no_http_response"));
+      });
+    });
+    return { host, ok: status >= 200 && status < 400, status };
+  } catch {
+    return { host, ok: false, error: "unavailable" };
+  } finally {
+    socket?.destroy();
+    if (!socket) raw?.destroy();
+  }
 }
