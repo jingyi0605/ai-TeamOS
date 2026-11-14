@@ -221,7 +221,7 @@ export class Projection {
         // the same RunItem added three redundant database round trips per
         // coalesced fragment.
         await this.prisma.$executeRaw`
-          INSERT INTO "message" (
+          INSERT INTO "outcomego_message" AS "message" (
             "id", "botId", "conversationId", "runId", "upstreamItemId",
             "role", "content", "status", "createdAt", "updatedAt"
           ) VALUES (
