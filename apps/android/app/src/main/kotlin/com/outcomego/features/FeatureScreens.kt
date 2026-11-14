@@ -268,24 +268,29 @@ fun RichMessageCardScreen(
                     is RichMessageBlock.Form -> {
                         Text(block.title, fontWeight = FontWeight.Bold)
                         block.fields.forEach { field ->
-                            OutlinedTextField(
-                                value = values[field.id] ?: field.value,
-                                onValueChange = { values[field.id] = it },
-                                label = { Text(field.label + if (field.required) " *" else "") },
-                                visualTransformation = if (field.secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                            )
+                            val fieldLabel = field.label + if (field.required) " *" else ""
+                            val currentValue = values[field.id] ?: field.value
                             if (field.options.isNotEmpty()) {
-                                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    field.options.forEach { option ->
-                                        FilterChip(
-                                            selected = values[field.id] == option,
-                                            onClick = { values[field.id] = option },
-                                            label = { Text(option) },
-                                        )
-                                    }
-                                }
+                                val selectPlaceholder = localizedText("Select…", "请选择…")
+                                val options = (field.options + currentValue).filter { it.isNotBlank() }.distinct()
+                                DropdownSelectorField(
+                                    selectedValue = currentValue,
+                                    options = options,
+                                    optionLabel = { it.ifBlank { selectPlaceholder } },
+                                    onSelect = { values[field.id] = it },
+                                    label = fieldLabel,
+                                    placeholder = selectPlaceholder,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            } else {
+                                OutlinedTextField(
+                                    value = currentValue,
+                                    onValueChange = { values[field.id] = it },
+                                    label = { Text(fieldLabel) },
+                                    visualTransformation = if (field.secret) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true,
+                                )
                             }
                         }
                         ActionButton(block.submit) { onAction(block.submit, values.toMap() + ("_richType" to "user-form")) }
@@ -856,16 +861,88 @@ fun RoutineEditorScreen(
                 }
             }
             item {
-                OutlinedTextField(routine.schedule.timeZone, { onChange(routine.copy(schedule = routine.schedule.copy(timeZone = it))) }, label = { Text(localizedText("Time zone", "时区")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                OutlinedTextField(routine.schedule.timeMinutes.toString(), { it.toIntOrNull()?.let { minutes -> onChange(routine.copy(schedule = routine.schedule.copy(timeMinutes = minutes))) } }, label = { Text(localizedText("Time of day (minutes after midnight)", "时间（距午夜的分钟数）")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                if (routine.schedule.frequency == RoutineSchedule.Frequency.Weekly) {
-                    OutlinedTextField(routine.schedule.dayOfWeek.toString(), { it.toIntOrNull()?.let { day -> onChange(routine.copy(schedule = routine.schedule.copy(dayOfWeek = day))) } }, label = { Text(localizedText("Day of week (1–7)", "星期几（1–7）")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                }
-                if (routine.schedule.frequency == RoutineSchedule.Frequency.Monthly) {
-                    OutlinedTextField(routine.schedule.dayOfMonth.toString(), { it.toIntOrNull()?.let { day -> onChange(routine.copy(schedule = routine.schedule.copy(dayOfMonth = day))) } }, label = { Text(localizedText("Day of month (1–31)", "每月第几天（1–31）")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                }
-                if (routine.schedule.frequency == RoutineSchedule.Frequency.Interval) {
-                    OutlinedTextField(routine.schedule.intervalAmount.toString(), { it.toIntOrNull()?.let { amount -> onChange(routine.copy(schedule = routine.schedule.copy(intervalAmount = amount.coerceAtLeast(1)))) } }, label = { Text(localizedText("Every", "每隔")) }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                val useChinese = localizedText("en", "zh") == "zh"
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SearchableTimeZoneSelector(
+                        selectedTimeZone = routine.schedule.timeZone,
+                        onSelectTimeZone = { zone, _ -> onChange(routine.copy(schedule = routine.schedule.copy(timeZone = zone))) },
+                        label = localizedText("Time zone", "时区"),
+                        includeAutoDetect = false,
+                        useChinese = useChinese,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    when (routine.schedule.frequency) {
+                        RoutineSchedule.Frequency.Hourly -> {
+                            val currentMinute = routine.schedule.timeMinutes.coerceIn(0, 59)
+                            DropdownSelectorField(
+                                selectedValue = currentMinute,
+                                options = PickerCatalogs.minuteOptions(currentMinute),
+                                optionLabel = PickerCatalogs::formatHourlyMinute,
+                                onSelect = { minute -> onChange(routine.copy(schedule = routine.schedule.copy(timeMinutes = minute))) },
+                                label = localizedText("Minute", "分钟"),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        RoutineSchedule.Frequency.Daily,
+                        RoutineSchedule.Frequency.Weekdays,
+                        RoutineSchedule.Frequency.Weekly,
+                        RoutineSchedule.Frequency.Monthly,
+                        -> {
+                            val currentMinutes = routine.schedule.timeMinutes.coerceIn(0, 24 * 60 - 1)
+                            DropdownSelectorField(
+                                selectedValue = currentMinutes,
+                                options = PickerCatalogs.timeOptions(currentMinutes),
+                                optionLabel = PickerCatalogs::formatClockTime,
+                                onSelect = { minutes -> onChange(routine.copy(schedule = routine.schedule.copy(timeMinutes = minutes))) },
+                                label = localizedText("Time", "时间"),
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        RoutineSchedule.Frequency.Interval -> Unit
+                    }
+                    if (routine.schedule.frequency == RoutineSchedule.Frequency.Weekly) {
+                        DropdownSelectorField(
+                            selectedValue = routine.schedule.dayOfWeek.coerceIn(1, 7),
+                            options = PickerCatalogs.weekdayOptions(),
+                            optionLabel = { day -> PickerCatalogs.weekdayLabel(day, useChinese) },
+                            onSelect = { day -> onChange(routine.copy(schedule = routine.schedule.copy(dayOfWeek = day))) },
+                            label = localizedText("Day of week", "星期几"),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    if (routine.schedule.frequency == RoutineSchedule.Frequency.Monthly) {
+                        DropdownSelectorField(
+                            selectedValue = routine.schedule.dayOfMonth.coerceIn(1, 31),
+                            options = PickerCatalogs.monthDayOptions(),
+                            optionLabel = { day -> if (useChinese) "${day}日" else day.toString() },
+                            onSelect = { day -> onChange(routine.copy(schedule = routine.schedule.copy(dayOfMonth = day))) },
+                            label = localizedText("Day of month", "每月日期"),
+                            supportingText = if (routine.schedule.dayOfMonth > 28) {
+                                localizedText("Months with fewer days run on the last day of the month.", "天数不足的月份将在月末最后一天运行。")
+                            } else null,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    if (routine.schedule.frequency == RoutineSchedule.Frequency.Interval) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DropdownSelectorField(
+                                selectedValue = routine.schedule.intervalAmount.coerceAtLeast(1),
+                                options = PickerCatalogs.intervalAmountOptions(routine.schedule.intervalUnit, routine.schedule.intervalAmount),
+                                optionLabel = { it.toString() },
+                                onSelect = { amount -> onChange(routine.copy(schedule = routine.schedule.copy(intervalAmount = amount))) },
+                                label = localizedText("Every", "每隔"),
+                                modifier = Modifier.weight(1f),
+                            )
+                            DropdownSelectorField(
+                                selectedValue = routine.schedule.intervalUnit,
+                                options = RoutineSchedule.IntervalUnit.entries,
+                                optionLabel = { unit -> PickerCatalogs.intervalUnitLabel(unit, useChinese) },
+                                onSelect = { unit -> onChange(routine.copy(schedule = PickerCatalogs.changeIntervalUnit(routine.schedule, unit))) },
+                                label = localizedText("Unit", "单位"),
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
                 }
             }
             item {
@@ -1104,7 +1181,17 @@ fun SettingsScreen(
             item {
                 SettingsGroup {
                     SettingsRow(text("Time zone", "时区"), text("Used for routines and timestamps", "用于例行任务和时间戳"), inline = false) {
-                        SettingsTextField(settings.timeZone, { onChange(settings.copy(timeZone = it)) }, "Asia/Shanghai")
+                        SearchableTimeZoneSelector(
+                            selectedTimeZone = settings.timeZone,
+                            overrideTimeZone = settings.overrideTimeZone,
+                            detectedTimeZone = settings.detectedTimeZone,
+                            includeAutoDetect = true,
+                            useChinese = settings.language == AppSettings.Language.Chinese,
+                            style = SelectorFieldStyle.Settings,
+                            onSelectTimeZone = { zone, override ->
+                                onChange(settings.copy(timeZone = zone, overrideTimeZone = override))
+                            },
+                        )
                     }
                     SettingsDivider()
                     SettingsRow(text("App haptics", "应用触感反馈"), text("Vibrate for important interactions", "重要交互时提供震动反馈")) {
@@ -1830,7 +1917,19 @@ fun VoiceSettingsScreen(
                             SettingsDivider()
                             VoiceField(text("TTS model", "语音合成模型"), value.ttsModel, defaults.ttsModel.ifBlank { automatic }) { update(value.copy(ttsModel = it)) }
                             SettingsDivider()
-                            VoiceField(text("TTS voice", "语音"), value.voice, defaults.voice.ifBlank { automatic }) { update(value.copy(voice = it)) }
+                            if (volcengine) {
+                                SettingsRow(text("TTS voice", "语音"), "", inline = false) {
+                                    VolcengineVoiceSelector(
+                                        selectedVoiceId = value.voice,
+                                        automaticLabel = defaults.voice.ifBlank { automatic },
+                                        useChinese = language == AppSettings.Language.Chinese,
+                                        style = SelectorFieldStyle.Settings,
+                                        onSelectVoice = { update(value.copy(voice = it)) },
+                                    )
+                                }
+                            } else {
+                                VoiceField(text("TTS voice", "语音"), value.voice, defaults.voice.ifBlank { automatic }) { update(value.copy(voice = it)) }
+                            }
                             SettingsDivider()
                             VoiceField(text("Language", "语言"), value.language, defaults.language.ifBlank { automatic }) { update(value.copy(language = it)) }
                             SettingsDivider()
