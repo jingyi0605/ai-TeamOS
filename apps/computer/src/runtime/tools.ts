@@ -99,6 +99,7 @@ import type { ActiveTurn, RuntimeDynamicTool } from "./types";
 import { renderShellAwaitResult } from "@outcomego/shell-jobs";
 import { scopedProcessEnvironment } from "@outcomego/plugin-sdk";
 import { objectToolSchema } from "../tool-schema";
+import { BitwardenSecretStore, type BitwardenSecretField } from "./bitwarden-secrets";
 
 export const GRAPHICAL_WORKER_SHELL_DESCRIPTION = [
   "Executes a given command in a shell session with optional foreground timeout.",
@@ -183,6 +184,7 @@ const BOX_HELP_PAGE_TIMEOUT_MS = 12_000;
 /** A question card waits on the user's answer, so it ends the turn after its response. */
 const isQuestionSend = (args: unknown): boolean =>
   ["widget", "secret-request"].includes(String((args as { type?: unknown } | null)?.type));
+type CachedBitwardenPackage = { pluginId?: unknown; installPath?: unknown };
 export const EARLIER_SEND_FAILED_QUESTION_HELD =
   "Failed to send the message to the user: An earlier message in this response was not delivered (its own result says why), so this question was not shown either and the turn is still yours. Fix and resend that message, then ask again.";
 
@@ -313,6 +315,22 @@ export class RuntimeTools {
     return result;
   }
   private readonly turnSecrets = new WeakMap<ActiveTurn, Record<string, string>>();
+  private readonly bitwardenScopeScreens = new Map<string, string>();
+  private readonly bitwardenSecrets = new BitwardenSecretStore(
+    process.env,
+    undefined,
+    (scope, value) => {
+      const screenBotId = this.bitwardenScopeScreens.get(scope);
+      if (screenBotId) this.forgetBrowserValues(screenBotId, [value]);
+      if (!this.bitwardenSecrets.has(scope)) this.bitwardenScopeScreens.delete(scope);
+    },
+  );
+
+  private bitwardenScope(active: Pick<ActiveTurn, "botId" | "runId" | "screenBotId">): string {
+    const scope = `${active.botId}:${active.runId}`;
+    this.bitwardenScopeScreens.set(scope, active.screenBotId);
+    return scope;
+  }
 
   private async processSecrets(
     active: ActiveTurn,
@@ -353,6 +371,25 @@ export class RuntimeTools {
     return environment;
   }
 
+  private async resolveBitwardenWrapper(
+    root: string,
+    installed: CachedBitwardenPackage & { installPath: string },
+  ): Promise<string> {
+    const allowedRoot = await realpath(join(root, "plugins", "cache"));
+    const candidates = [installed.installPath];
+    const normalized = installed.installPath.replaceAll("\\", "/");
+    const marker = "/plugins/cache/";
+    const markerIndex = normalized.lastIndexOf(marker);
+    if (markerIndex >= 0) {
+      candidates.push(join(root, "plugins", "cache", ...normalized.slice(markerIndex + marker.length).split("/")));
+    }
+    for (const candidate of candidates) {
+      const resolved = await realpath(join(candidate, "skills/bitwarden/scripts/bw.sh")).catch(() => null);
+      if (resolved?.startsWith(`${allowedRoot}${sep}`)) return resolved;
+    }
+    throw new Error("The Bitwarden wrapper is outside the managed package cache");
+  }
+
   private async executeBitwardenCredential(
     active: ActiveTurn,
     callId: string,
@@ -374,13 +411,10 @@ export class RuntimeTools {
       return [key, value];
     }));
     const root = process.env.OUTCOMEGO_AGENT_DATA_ROOT ?? "/agent-data";
-    const cache = JSON.parse(await Bun.file(join(root, "plugin-skills", "cache.json")).text()) as { packages?: Array<{ pluginId?: unknown; installPath?: unknown }> };
+    const cache = JSON.parse(await Bun.file(join(root, "plugin-skills", "cache.json")).text()) as { packages?: CachedBitwardenPackage[] };
     const installed = cache.packages?.find((entry) => entry.pluginId === "bitwarden" && typeof entry.installPath === "string");
     if (!installed || typeof installed.installPath !== "string") throw new Error("The Bitwarden package is unavailable");
-    const wrapper = join(installed.installPath, "skills/bitwarden/scripts/bw.sh");
-    const allowedRoot = await realpath(join(root, "plugins", "cache"));
-    const resolvedWrapper = await realpath(wrapper);
-    if (!resolvedWrapper.startsWith(`${allowedRoot}${sep}`)) throw new Error("The Bitwarden wrapper is outside the managed package cache");
+    const resolvedWrapper = await this.resolveBitwardenWrapper(root, { installPath: installed.installPath });
     const child = Bun.spawn(["bash", resolvedWrapper, field, itemId], {
       env: scopedProcessEnvironment(process.env, configured),
       stdin: "ignore",
@@ -392,7 +426,27 @@ export class RuntimeTools {
       const [stdout] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       const result = JSON.parse(stdout) as Record<string, unknown>;
       if (result.ok !== true || typeof result.value !== "string") throw new Error(typeof result.message === "string" ? result.message : "The Bitwarden credential could not be read");
-      return { content: [{ type: "text", text: JSON.stringify({ ok: true, kind: field, itemId, value: result.value }) }], details: { kind: field, itemId } };
+      const environmentVariable = this.bitwardenSecrets.put(
+        this.bitwardenScope(active),
+        field as BitwardenSecretField,
+        result.value,
+      );
+      this.rememberBrowserValues(active.screenBotId, [result.value]);
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            ok: true,
+            stored: true,
+            kind: field,
+            itemId,
+            environmentVariable,
+            browserReference: `$${environmentVariable}`,
+            expiresInSeconds: 900,
+          }),
+        }],
+        details: { kind: field, itemId, stored: true, environmentVariable },
+      };
     } catch (error) {
       if (signal?.aborted) throw error;
       throw new Error(error instanceof Error ? error.message : "The Bitwarden credential could not be read");
@@ -420,12 +474,10 @@ export class RuntimeTools {
       return [key, value];
     }));
     const root = process.env.OUTCOMEGO_AGENT_DATA_ROOT ?? "/agent-data";
-    const cache = JSON.parse(await Bun.file(join(root, "plugin-skills", "cache.json")).text()) as { packages?: Array<{ pluginId?: unknown; installPath?: unknown }> };
+    const cache = JSON.parse(await Bun.file(join(root, "plugin-skills", "cache.json")).text()) as { packages?: CachedBitwardenPackage[] };
     const installed = cache.packages?.find((entry) => entry.pluginId === "bitwarden" && typeof entry.installPath === "string");
     if (!installed || typeof installed.installPath !== "string") throw new Error("The Bitwarden package is unavailable");
-    const resolvedWrapper = await realpath(join(installed.installPath, "skills/bitwarden/scripts/bw.sh"));
-    const allowedRoot = await realpath(join(root, "plugins", "cache"));
-    if (!resolvedWrapper.startsWith(`${allowedRoot}${sep}`)) throw new Error("The Bitwarden wrapper is outside the managed package cache");
+    const resolvedWrapper = await this.resolveBitwardenWrapper(root, { installPath: installed.installPath });
     const child = Bun.spawn(["bash", resolvedWrapper, ...(title ? ["search", "--title", query] : ["search", query])], {
       env: scopedProcessEnvironment(process.env, configured), stdin: "ignore", stdout: "pipe", stderr: "pipe",
     });
@@ -925,7 +977,10 @@ export class RuntimeTools {
       normalizeMainToolArguments("Computer", args)
     );
     const { then = [], description: _description, ...first } = input;
-    const requestedActions = [first, ...then];
+    const requestedActions = [
+      this.resolveBitwardenComputerAction(active, first),
+      ...then.map((action) => this.resolveBitwardenComputerAction(active, action)),
+    ];
     const needsDesktopObservation = active.lastGraphicalSurface !== "computer" &&
       requestedActions.some(action => ["click", "move", "drag", "scroll"].includes(action.action));
     const actions = needsDesktopObservation ? [{ action: "screenshot" as const }] : requestedActions;
@@ -959,6 +1014,15 @@ export class RuntimeTools {
         ...(needsDesktopObservation ? { requestedActionsSkipped: true } : {}),
       },
     };
+  }
+
+  private resolveBitwardenComputerAction<T extends { action: string; text?: string }>(
+    active: ActiveTurn,
+    action: T,
+  ): T {
+    if (action.action !== "type" || typeof action.text !== "string") return action;
+    const resolved = this.bitwardenSecrets.resolve(this.bitwardenScope(active), action.text);
+    return resolved ? { ...action, text: resolved.value } : action;
   }
 
   /** Connects the bot's browser on first use, launching Chromium if needed; concurrent callers share one connect. */
@@ -1009,7 +1073,8 @@ export class RuntimeTools {
     this.browserSessionScreens.set(active.botId, active.screenBotId);
     browser.configureUploads(this.workspaceRoot, [this.agentDir]);
     browser.registerPrivateValues([...(this.privateBrowserValues.get(active.screenBotId) ?? [])]);
-    const result = await browser.execute(toolName, args, signal);
+    const resolvedArgs = this.resolveBitwardenBrowserArguments(active, toolName, args);
+    const result = await browser.execute(toolName, resolvedArgs, signal);
     active.lastGraphicalSurface = "browser";
     return result;
   }
@@ -1081,6 +1146,51 @@ export class RuntimeTools {
     for (const [id, session] of this.browserUseSessions)
       if (id === screenBotId || this.browserSessionScreens.get(id) === screenBotId)
         session.registerPrivateValues([...saved]);
+  }
+
+  private forgetBrowserValues(screenBotId: string, values: string[]) {
+    const saved = this.privateBrowserValues.get(screenBotId);
+    if (saved) {
+      for (const value of values) saved.delete(value);
+      if (!saved.size) this.privateBrowserValues.delete(screenBotId);
+    }
+    for (const [id, session] of this.browserUseSessions)
+      if (id === screenBotId || this.browserSessionScreens.get(id) === screenBotId)
+        session.forgetPrivateValues(values);
+  }
+
+  private resolveBitwardenBrowserArguments(
+    active: ActiveTurn,
+    toolName: string,
+    args: unknown,
+  ): unknown {
+    if (!args || typeof args !== "object" || Array.isArray(args)) return args;
+    const input = args as Record<string, unknown>;
+    if (toolName === "browser_type" && typeof input.text === "string") {
+      const resolved = this.bitwardenSecrets.resolve(this.bitwardenScope(active), input.text);
+      return resolved ? { ...input, text: resolved.value } : args;
+    }
+    if (toolName === "browser_fill_form" && Array.isArray(input.fields)) {
+      let changed = false;
+      const fields = input.fields.map((field) => {
+        if (!field || typeof field !== "object" || Array.isArray(field)) return field;
+        const candidate = field as Record<string, unknown>;
+        if (typeof candidate.value !== "string") return field;
+        const resolved = this.bitwardenSecrets.resolve(this.bitwardenScope(active), candidate.value);
+        if (!resolved) return field;
+        changed = true;
+        return { ...candidate, value: resolved.value };
+      });
+      return changed ? { ...input, fields } : args;
+    }
+    return args;
+  }
+
+  clearBitwardenSecrets(active: Pick<ActiveTurn, "botId" | "runId" | "screenBotId">): void {
+    const scope = this.bitwardenScope(active);
+    const values = this.bitwardenSecrets.clearScope(scope);
+    if (values.length) this.forgetBrowserValues(active.screenBotId, values);
+    this.bitwardenScopeScreens.delete(scope);
   }
 
   private async privateBrowser(active: ActiveTurn): Promise<BrowserUseSession> {
@@ -1718,7 +1828,7 @@ export class RuntimeTools {
             },
             {
               name: "ReadBitwardenCredential",
-              description: "Read one approved Bitwarden username, password or TOTP for the current task.",
+              description: "Read one approved Bitwarden username, password or TOTP into a short-lived Computer environment variable. The result contains only a browserReference; never ask for or expose the value.",
               inputSchema: objectToolSchema({ itemId: { type: "string" }, field: { type: "string", enum: ["username", "password", "totp"] } }, ["itemId", "field"]),
               source: "first-party",
               decodeArguments: (args) => args ?? {},

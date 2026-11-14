@@ -59,7 +59,9 @@ describe("browser-use tool surface", () => {
     expect(formWriteFrameAllowed("shop.example", "https://shop.example/pay", "https://js.payments.example/card")).toBe(true);
     expect(formWriteFrameAllowed("www.shop.example", "https://checkout.shop.example/", "blob:https://shop.example/1")).toBe(true);
     expect(formWriteFrameAllowed("shop.example", "https://shop.example/pay", "http://cards.example/")).toBe(false);
-    expect(formWriteFrameAllowed("shop.example", "http://shop.example/pay", "https://shop.example/pay")).toBe(false);
+    expect(formWriteFrameAllowed("shop.example", "http://shop.example/pay", "https://shop.example/pay")).toBe(true);
+    expect(formWriteFrameAllowed("shop.example", "http://shop.example/pay", "http://shop.example/pay")).toBe(true);
+    expect(formWriteFrameAllowed("shop.example", "http://shop.example/pay", "http://cards.shop.example/card")).toBe(true);
     expect(formWriteFrameAllowed("shop.example", "https://evil.example/", "https://shop.example/")).toBe(false);
     expect(formWriteFrameAllowed("127.0.0.1", "http://127.0.0.1:3000/", "http://localhost:4000/card")).toBe(true);
     expect(formWriteFrameAllowed("127.0.0.1", "http://127.0.0.1:3000/", "http://pay.example:4000/card")).toBe(false);

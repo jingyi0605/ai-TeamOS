@@ -72,20 +72,24 @@ export const truncateAriaSnapshot = (snapshot: string, maxDepth: number): string
 
 const LOOPBACK_FORM_HOSTS = ["localhost", "127.0.0.1", "[::1]", "::1"];
 const parseFrameUrl = (url: string) => { try { return new URL(url.startsWith("blob:") ? url.slice(5) : url); } catch { return null; } };
-/** The reference driver's write-frame rule: the top page is on the consented site, and the control's
- * frame is https (any site, so embedded card frames count) or on that site. Loopback sites take http. */
+/** The write-frame rule: the top page is on the consented site, and the control's
+ * frame is HTTPS (any site, so embedded card frames count) or HTTP on that same
+ * consented site. This supports explicitly approved legacy HTTP sites while
+ * refusing insecure cross-site frames. */
 export const formWriteFrameAllowed = (consentedHost: string, topUrl: string, controlFrameUrl: string): boolean => {
   const consented = consentedHost.trim().toLowerCase();
   const loopback = LOOPBACK_FORM_HOSTS.includes(consented);
   const apex = consented.replace(/^www\./, "");
   const domains = loopback ? LOOPBACK_FORM_HOSTS : [apex.includes(".") ? apex : consented];
-  const onSite = (url: string) => {
-    const parsed = parseFrameUrl(url);
-    if (!parsed || !(parsed.protocol === "https:" || (parsed.protocol === "http:" && loopback))) return false;
-    const host = parsed.hostname.toLowerCase();
-    return domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  const hostOnSite = (host: string) => {
+    const normalized = host.toLowerCase();
+    return domains.some((domain) => normalized === domain || normalized.endsWith(`.${domain}`));
   };
-  return parseFrameUrl(controlFrameUrl)?.protocol === "https:" || onSite(controlFrameUrl) ? onSite(topUrl) : false;
+  const top = parseFrameUrl(topUrl);
+  const control = parseFrameUrl(controlFrameUrl);
+  if (!top || !control || !["http:", "https:"].includes(top.protocol) || !hostOnSite(top.hostname)) return false;
+  if (control.protocol === "https:") return true;
+  return control.protocol === "http:" && hostOnSite(control.hostname);
 };
 const FORM_FRAME_READ_MS = 4_000;
 const withinFormFrameRead = async <T>(read: Promise<T>): Promise<T> => {
@@ -289,6 +293,7 @@ export class BrowserUseSession {
 
   private readonly privateValues = new Set<string>();
   registerPrivateValues(values: string[]) { for (const value of values) if (value) this.privateValues.add(value); }
+  forgetPrivateValues(values: string[]) { for (const value of values) this.privateValues.delete(value); }
 
   async importPrivateCookies(cookies: Array<Record<string, unknown>>): Promise<{injected:number;failed:number}> {
     this.registerPrivateValues(cookies.flatMap(cookie => typeof cookie.value === "string" ? [cookie.value] : []));
