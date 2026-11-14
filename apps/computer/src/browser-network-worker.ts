@@ -12,6 +12,7 @@ import {
 } from "./computer-network-dns";
 import { runOrdinaryProbe, probeComputerNetwork } from "./computer-network-probe";
 import { startManagementDiscovery } from "./computer-network-management";
+import type { NetworkDnsDiagnostic } from "@outcomego/plugin-sdk/browser-network/protocol";
 
 const lines = createInterface({ input: process.stdin });
 let shutdown: (() => void) | undefined,
@@ -71,6 +72,9 @@ const client: BrowserNetworkClient = new BrowserNetworkClient({
   role: "computer",
   url: url.href,
   headers: { authorization: `Bearer ${config.token}` },
+  resolver: (route) => (route.mode === "server" ? "docker" : "device-exit"),
+  diagnostic: (diagnostic: NetworkDnsDiagnostic) =>
+    console.log(JSON.stringify({ dns: diagnostic })),
   changed: () => {
     dnsExchange?.syncRoute();
     void refreshIpv6();
@@ -94,6 +98,7 @@ dnsExchange = config.computerNetwork
   ? createDnsExchange(client, {
       routeKey: () => (client.available() ? (client.route?.epoch ?? null) : null),
       ipv6: () => !suppressIpv6(),
+      resolver: () => (client.route?.mode === "server" ? "docker" : "doh"),
     })
   : undefined;
 const dns = dnsExchange ? await startComputerDns(dnsExchange) : undefined;

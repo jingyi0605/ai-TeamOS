@@ -1,4 +1,8 @@
-import type { NetworkEgress, NetworkQuality } from "@outcomego/contracts/browser-network";
+import type {
+  NetworkDnsDiagnostic,
+  NetworkEgress,
+  NetworkQuality,
+} from "@outcomego/contracts/browser-network";
 import { randomUUID } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { join } from "node:path";
@@ -53,7 +57,12 @@ export async function startBrowserNetwork(serverUrl: string, token: string) {
   const failProbes = () => {
     for (const kind of probes.keys()) failProbe(kind);
   };
-  let state = { ready: false, mode: null as string | null, activeConnections: 0 };
+  let state: {
+    ready: boolean;
+    mode: string | null;
+    activeConnections: number;
+    dns?: NetworkDnsDiagnostic;
+  } = { ready: false, mode: null, activeConnections: 0 };
   const ensureTun = async () => {
     if (!computerNetwork) return;
     if (!tun || tun.exitCode !== null || tun.signalCode !== null || !tun.pid) {
@@ -168,7 +177,15 @@ export async function startBrowserNetwork(serverUrl: string, token: string) {
                 ready: value.ready,
                 mode: value.mode ?? null,
                 activeConnections: value.activeConnections ?? 0,
+                ...(value.dns ? { dns: value.dns as NetworkDnsDiagnostic } : {}),
               };
+            if (value.dns) {
+              const dns = value.dns as NetworkDnsDiagnostic;
+              state = { ...state, dns };
+              console.warn(
+                `Browser DNS: host=${dns.host} resolver=${dns.resolver} addresses=${dns.addresses.join(",")} selected=${dns.selectedAddress ?? "none"} epoch=${dns.routeEpoch} status=${dns.status}`
+              );
+            }
           } catch {
             /* Never forward potentially sensitive child output. */
           }

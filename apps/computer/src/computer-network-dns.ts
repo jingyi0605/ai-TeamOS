@@ -69,7 +69,14 @@ export function dnsNodata(query: Buffer): Buffer {
  * No system lookup or direct fallback is performed, including on timeout. */
 export function createDnsExchange(
   client: { open(host: string, port: number, signal?: AbortSignal): Promise<Duplex> },
-  options: { routeKey?: () => string | null; timeoutMs?: number; ipv6?: () => boolean } = {}
+  options: {
+    routeKey?: () => string | null;
+    timeoutMs?: number;
+    ipv6?: () => boolean;
+    resolver?: () => "docker" | "doh";
+    dockerResolver?: string;
+    dockerResolverPort?: number;
+  } = {}
 ) {
   type Job = {
     query: Buffer;
@@ -93,6 +100,45 @@ export function createDnsExchange(
   const timeoutMs = options.timeoutMs ?? 5000;
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 5000)
     throw new Error("Invalid DNS deadline");
+  const resolver = options.resolver ?? (() => "doh");
+  const dockerResolver = options.dockerResolver ?? "127.0.0.11";
+  const dockerResolverPort = options.dockerResolverPort ?? 53;
+
+  const dockerDns = (query: Buffer, signal: AbortSignal): Promise<Buffer> =>
+    new Promise((resolve, reject) => {
+      const socket = createSocket("udp4");
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const close = () => {
+        clearTimeout(timer);
+        signal.removeEventListener("abort", abort);
+        try {
+          socket.close();
+        } catch {}
+      };
+      const fail = (error: Error) => {
+        close();
+        reject(error);
+      };
+      const abort = () => fail(new Error("DNS cancelled"));
+      socket.on("error", () => fail(new Error("Docker DNS unavailable")));
+      socket.on("message", (response) => {
+        if (
+          response.length < 12 ||
+          response.readUInt16BE(0) !== query.readUInt16BE(0) ||
+          !(response[2]! & 0x80)
+        ) {
+          fail(new Error("Invalid Docker DNS response"));
+          return;
+        }
+        close();
+        resolve(response);
+      });
+      signal.addEventListener("abort", abort, { once: true });
+      timer = setTimeout(() => fail(new Error("Docker DNS timeout")), timeoutMs);
+      socket.send(query, dockerResolverPort, dockerResolver, (error) => {
+        if (error) fail(new Error("Docker DNS unavailable"));
+      });
+    });
 
   const agentFor = (owner: Pool, slot: Slot) => {
     const agent = new Agent({ keepAlive: true, maxSockets: 1, maxFreeSockets: 1, timeout: 10_000 });
@@ -162,6 +208,17 @@ export function createDnsExchange(
       if (routeKey() !== owner.key) {
         dispose(owner);
         return;
+      }
+      if (resolver() === "docker") {
+        void dockerDns(job.query, job.controller.signal)
+          .then((result) => {
+            if (routeKey() !== owner.key) dispose(owner);
+            else finish(owner, job, undefined, result);
+          })
+          .catch((error) =>
+            finish(owner, job, error instanceof Error ? error : new Error("DNS unavailable"))
+          );
+        continue;
       }
       void (async () => {
         if (!slot.socket || slot.socket.destroyed) {

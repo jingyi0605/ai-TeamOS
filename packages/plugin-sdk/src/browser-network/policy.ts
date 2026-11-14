@@ -52,6 +52,21 @@ export async function dialTarget(
     ports?: readonly number[];
     lookup?: typeof lookup;
     dial?: typeof createConnection;
+    resolver?: string;
+    onResolved?: (event: {
+      host: string;
+      port: number;
+      resolver: string;
+      addresses: Array<{ address: string; family: number }>;
+      routeEpoch: string;
+    }) => void;
+    onConnected?: (event: {
+      host: string;
+      port: number;
+      address: string;
+      family: number;
+      routeEpoch: string;
+    }) => void;
   } = {}
 ): Promise<Socket> {
   const timeout = AbortSignal.timeout(15_000);
@@ -59,8 +74,51 @@ export async function dialTarget(
   life.throwIfAborted();
   if (options.publicOnly && options.ports && !options.ports.includes(target.port))
     throw new NetworkError("port_blocked");
+  const addresses = await resolveTargetAddresses(target, life, options);
+  for (const address of addresses.slice(0, 8)) {
+    life.throwIfAborted();
+    try {
+      const socket = await connectTargetAddress(target, address, life, options);
+      options.onConnected?.({
+        host: target.host,
+        port: target.port,
+        address: address.address,
+        family: address.family,
+        routeEpoch: target.epoch,
+      });
+      return socket;
+    } catch {
+      if (life.aborted) throw new NetworkError("connect_timeout");
+    }
+  }
+  throw new NetworkError("connect_failed");
+}
+
+export type TargetAddress = { address: string; family: number };
+
+export async function resolveTargetAddresses(
+  target: OpenTarget,
+  signal: AbortSignal,
+  options: {
+    publicOnly?: boolean;
+    ports?: readonly number[];
+    lookup?: typeof lookup;
+    resolver?: string;
+    onResolved?: (event: {
+      host: string;
+      port: number;
+      resolver: string;
+      addresses: TargetAddress[];
+      routeEpoch: string;
+    }) => void;
+  } = {}
+): Promise<TargetAddress[]> {
+  if (options.publicOnly && options.ports && !options.ports.includes(target.port))
+    throw new NetworkError("port_blocked");
+  const life = AbortSignal.any([signal, AbortSignal.timeout(15_000)]);
+  life.throwIfAborted();
   const host = options.publicOnly ? canonicalHost(target.host) : target.host;
-  let addresses: Array<{ address: string; family: number }>;
+  let addresses: TargetAddress[];
   if (isIP(host)) addresses = [{ address: host, family: isIP(host) }];
   else {
     const dnsSignal = AbortSignal.any([life, AbortSignal.timeout(5_000)]);
@@ -77,38 +135,45 @@ export async function dialTarget(
   if (!addresses.length) throw new NetworkError("dns_failed");
   if (options.publicOnly && addresses.some((a) => !publicAddress(a.address)))
     throw new NetworkError("destination_blocked");
-  // Try only pinned, validated addresses. No subsequent hostname lookup is allowed.
-  for (const address of addresses.slice(0, 8)) {
-    life.throwIfAborted();
-    try {
-      return await new Promise<Socket>((resolve, reject) => {
-        const socket = (options.dial ?? createConnection)({
-          host: address.address,
-          family: address.family,
-          port: target.port,
-          allowHalfOpen: true,
-          noDelay: true,
-        });
-        const attempt = AbortSignal.any([life, AbortSignal.timeout(3_000)]);
-        const abort = () => socket.destroy(new NetworkError("connect_timeout"));
-        const cleanup = () => attempt.removeEventListener("abort", abort);
-        socket.once("error", (error) => {
-          cleanup();
-          reject(error);
-        });
-        socket.once("connect", () => {
-          cleanup();
-          if (life.aborted) {
-            socket.destroy();
-            reject(new NetworkError("not_authorized"));
-          } else resolve(socket);
-        });
-        attempt.addEventListener("abort", abort, { once: true });
-        if (attempt.aborted) abort();
-      });
-    } catch {
-      if (life.aborted) throw new NetworkError("connect_timeout");
-    }
-  }
-  throw new NetworkError("connect_failed");
+  options.onResolved?.({
+    host: target.host,
+    port: target.port,
+    resolver: options.resolver ?? "system",
+    addresses: addresses.slice(0, 8),
+    routeEpoch: target.epoch,
+  });
+  return addresses;
+}
+
+export async function connectTargetAddress(
+  target: OpenTarget,
+  address: TargetAddress,
+  signal: AbortSignal,
+  options: { dial?: typeof createConnection } = {}
+): Promise<Socket> {
+  const attempt = AbortSignal.any([signal, AbortSignal.timeout(3_000)]);
+  return new Promise<Socket>((resolve, reject) => {
+    const socket = (options.dial ?? createConnection)({
+      host: address.address,
+      family: address.family,
+      port: target.port,
+      allowHalfOpen: true,
+      noDelay: true,
+    });
+    const abort = () => socket.destroy(new NetworkError("connect_timeout"));
+    const cleanup = () => attempt.removeEventListener("abort", abort);
+    socket.once("error", (error) => {
+      cleanup();
+      reject(error);
+    });
+    socket.once("connect", () => {
+      cleanup();
+      if (signal.aborted) {
+        socket.destroy();
+        reject(new NetworkError("not_authorized"));
+      } else resolve(socket);
+    });
+    attempt.addEventListener("abort", abort, { once: true });
+    if (attempt.aborted) abort();
+  });
 }

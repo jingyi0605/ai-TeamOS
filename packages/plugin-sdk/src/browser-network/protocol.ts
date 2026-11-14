@@ -83,6 +83,30 @@ export interface NetworkRoute extends Omit<NetworkSettings, "mode"> {
   available: boolean;
   streamWindow?: number;
 }
+export interface NetworkDnsDiagnostic {
+  host: string;
+  port: number;
+  resolver: string;
+  addresses: string[];
+  selectedAddress: string | null;
+  routeEpoch: string;
+  status: "connected" | "failed";
+  checkedAt: string;
+}
+export interface NetworkEndpointCheck {
+  host: string;
+  ok: boolean;
+  status?: number;
+  error?: string;
+}
+export interface NetworkEgress {
+  epoch: string;
+  sourceId: string;
+  ip: string;
+  location: string;
+  checkedAt: string;
+  checks?: NetworkEndpointCheck[];
+}
 export interface NetworkSettingsUpdate {
   expectedRevision: number;
   mode: NetworkMode;
@@ -97,13 +121,6 @@ export interface NetworkDevice {
   sharingAllowed: boolean;
   supported: boolean;
   working?: boolean;
-}
-export interface NetworkEgress {
-  epoch: string;
-  sourceId: string;
-  ip: string;
-  location: string;
-  checkedAt: string;
 }
 export interface NetworkQuality extends Pick<NetworkEgress, "epoch" | "sourceId" | "checkedAt"> {
   latencyMs: number;

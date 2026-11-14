@@ -1,7 +1,12 @@
 import { expect, test } from "bun:test";
 import { createSocket } from "node:dgram";
-import { createConnection } from "node:net";
-import { createDnsExchange, dnsFailure, dnsNodata, startComputerDns } from "../src/computer-network-dns";
+import { createConnection, type AddressInfo } from "node:net";
+import {
+  createDnsExchange,
+  dnsFailure,
+  dnsNodata,
+  startComputerDns,
+} from "../src/computer-network-dns";
 
 const query = Buffer.from("007b01000001000000000000076578616d706c6503636f6d0000010001", "hex");
 const aaaa = Buffer.from("007b01000001000000000000076578616d706c6503636f6d00001c0001", "hex");
@@ -106,6 +111,53 @@ test("malformed DNS never opens a transport, and failed admission never falls ba
   expect(calls).toBe(0);
   await expect(exchange(query)).rejects.toThrow("selected route unavailable");
   expect(calls).toBe(1);
+});
+
+test("server-mode DNS can use the Docker resolver without opening the exit tunnel", async () => {
+  const upstream = createSocket("udp4");
+  await new Promise<void>((resolve) => upstream.bind(0, "127.0.0.1", resolve));
+  const port = (upstream.address() as AddressInfo).port;
+  const response = new Promise<void>((resolve, reject) => {
+    upstream.once("message", (packet, peer) => {
+      const header = Buffer.from(packet.subarray(0, 12));
+      header[2] = 0x81;
+      header[3] = 0x80;
+      header.writeUInt16BE(1, 6);
+      upstream.send(
+        Buffer.concat([
+          header,
+          packet.subarray(12),
+          Buffer.from([0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 11, 77, 0, 80]),
+        ]),
+        peer.port,
+        peer.address
+      );
+      resolve();
+    });
+    upstream.once("error", reject);
+  });
+  try {
+    const exchange = createDnsExchange(
+      {
+        open: async () => {
+          throw new Error("DoH must not be opened");
+        },
+      },
+      {
+        resolver: () => "docker",
+        dockerResolver: "127.0.0.1",
+        dockerResolverPort: port,
+      }
+    );
+    const result = await exchange(query);
+    await response;
+    expect(result.readUInt16BE(0)).toBe(123);
+    expect(result.readUInt16BE(6)).toBe(1);
+    expect(result.subarray(-4)).toEqual(Buffer.from([11, 77, 0, 80]));
+    exchange.close();
+  } finally {
+    upstream.close();
+  }
 });
 
 test("DNS deadlines include opening the tunnel and dispose of a late socket", async () => {

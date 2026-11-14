@@ -1,6 +1,7 @@
 export type {
   BrowserNetworkView,
   NetworkDevice,
+  NetworkDnsDiagnostic,
   NetworkSettings,
   NetworkMode,
   NetworkSettingsUpdate,

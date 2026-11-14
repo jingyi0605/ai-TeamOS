@@ -134,11 +134,16 @@ describe("browser network protocol and desktop policy", () => {
   test("desktop DNS is pinned and TCP dialing never resolves the hostname a second time", async () => {
     let resolved = 0;
     let pinned = "";
+    let resolution: any;
+    let connected: any;
     const socket = await dialTarget(
       { host: "example.com", port: 443, epoch: "e" },
       new AbortController().signal,
       {
         publicOnly: true,
+        resolver: "docker",
+        onResolved: (event: any) => (resolution = event),
+        onConnected: (event: any) => (connected = event),
         lookup: async () => {
           resolved++;
           return [{ address: "8.8.8.8", family: 4 }];
@@ -154,6 +159,19 @@ describe("browser network protocol and desktop policy", () => {
     );
     expect(resolved).toBe(1);
     expect(pinned).toBe("8.8.8.8");
+    expect(resolution).toMatchObject({
+      host: "example.com",
+      port: 443,
+      resolver: "docker",
+      addresses: [{ address: "8.8.8.8", family: 4 }],
+      routeEpoch: "e",
+    });
+    expect(connected).toMatchObject({
+      host: "example.com",
+      port: 443,
+      address: "8.8.8.8",
+      routeEpoch: "e",
+    });
     socket.destroy();
   });
   test("computer routing allows public TCP ports beyond web traffic", async () => {
