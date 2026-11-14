@@ -22,13 +22,22 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import okhttp3.Dns
 import okio.ByteString
 import java.io.IOException
 import java.net.InetSocketAddress
+import java.net.InetAddress
 import java.net.Socket
+import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.contentOrNull
+import com.outcomego.mobile.core.mobileJson
 
 class AndroidProviderHttpClient : ProviderHttpClient {
     private val transport = AndroidOutcomeGoTransport()
@@ -129,7 +138,7 @@ class AndroidProviderTcpDialer : ProviderTcpDialer {
     override suspend fun connect(host: String, port: Int): ProviderTcpConnection {
         val canonical = canonicalHost(host)
         val addresses = withContext(Dispatchers.IO) {
-            java.net.InetAddress.getAllByName(canonical).toList()
+            AndroidProviderDns.resolve(canonical)
         }
         if (addresses.isEmpty() || addresses.any { !isPublicAddress(it.hostAddress.orEmpty()) }) {
             throw IllegalStateException("destination_blocked")
@@ -151,6 +160,76 @@ class AndroidProviderTcpDialer : ProviderTcpDialer {
         }
         throw lastError ?: IOException("connect_failed")
     }
+}
+
+private object AndroidProviderDns {
+    private data class Endpoint(
+        val host: String,
+        val addresses: List<String>,
+    )
+
+    private val endpoints = listOf(
+        Endpoint("cloudflare-dns.com", listOf("1.1.1.1", "1.0.0.1")),
+        Endpoint("dns.google", listOf("8.8.8.8", "8.8.4.4")),
+    )
+
+    private val client = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        .dns(object : Dns {
+            override fun lookup(hostname: String): List<InetAddress> =
+                if (hostname in endpoints.map(Endpoint::host)) {
+                    endpoints.first { it.host == hostname }.addresses.map(InetAddress::getByName)
+                } else {
+                    Dns.SYSTEM.lookup(hostname)
+                }
+        })
+        .build()
+
+    fun resolve(host: String): List<InetAddress> {
+        if (isLiteralAddress(host)) return InetAddress.getAllByName(host).toList()
+        var lastError: Throwable? = null
+        for (endpoint in endpoints) {
+            try {
+                val records = listOf("A", "AAAA").flatMap { type ->
+                    runCatching { query(endpoint.host, host, type) }.getOrDefault(emptyList())
+                }
+                if (records.isNotEmpty()) {
+                    return records.map(InetAddress::getByName)
+                }
+            } catch (error: Throwable) {
+                lastError = error
+            }
+        }
+        throw lastError ?: IOException("dns_failed")
+    }
+
+    private fun query(endpoint: String, host: String, type: String): List<String> {
+        val url = "https://$endpoint/dns-query?name=${URLEncoder.encode(host, "UTF-8")}&type=$type"
+        val request = Request.Builder()
+            .url(url)
+            .header("Accept", "application/dns-json")
+            .build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IOException("dns_http_${response.code}")
+            val body = response.body?.string().orEmpty()
+            val json = mobileJson.parseToJsonElement(body).jsonObject
+            if (json["Status"]?.jsonPrimitive?.intOrNull != 0) return emptyList()
+            return json["Answer"]?.jsonArray.orEmpty()
+                .mapNotNull { answer ->
+                    val value = answer.jsonObject
+                    val answerType = value["type"]?.jsonPrimitive?.intOrNull
+                    if (answerType?.toString() == if (type == "A") "1" else "28") {
+                        value["data"]?.jsonPrimitive?.contentOrNull
+                    } else {
+                        null
+                    }
+                }
+        }
+    }
+
+    private fun isLiteralAddress(value: String): Boolean =
+        value.contains(':') || value.count { it == '.' } == 3 && value.all { it.isDigit() || it == '.' }
 }
 
 private class AndroidProviderTcpConnection(
