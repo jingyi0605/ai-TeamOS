@@ -43,6 +43,76 @@ load_env() {
   fi
 }
 
+wait_for_database() {
+  local retries=${OUTCOMEGO_DEBUG_DATABASE_RETRIES:-60}
+  local delay=${OUTCOMEGO_DEBUG_DATABASE_RETRY_DELAY:-1}
+  local attempt probe_error
+
+  [[ $retries =~ ^[1-9][0-9]*$ ]] || die "OUTCOMEGO_DEBUG_DATABASE_RETRIES must be a positive integer"
+  [[ $delay =~ ^[0-9]+([.][0-9]+)?$ ]] || die "OUTCOMEGO_DEBUG_DATABASE_RETRY_DELAY must be a non-negative number"
+
+  for ((attempt = 1; attempt <= retries; attempt++)); do
+    if probe_error=$(cd "$root/packages/db" && bun -e '
+      import pg from "pg";
+      const client = new pg.Client({
+        connectionString: process.env.DATABASE_URL,
+        connectionTimeoutMillis: 2000,
+      });
+      try {
+        await client.connect();
+        await client.query("select 1");
+      } catch (error) {
+        const detail = error as { code?: unknown; message?: unknown };
+        console.error(`code=${String(detail.code ?? "unknown")}: ${String(detail.message ?? error)}`);
+        process.exitCode = 1;
+      } finally {
+        await client.end().catch(() => {});
+      }
+    ' 2>&1 >/dev/null); then
+      if ((attempt > 1)); then
+        echo "database reachable after $attempt attempts"
+      fi
+      return 0
+    fi
+
+    if ((attempt < retries)); then
+      echo "waiting for database ($attempt/$retries): ${probe_error:-no error output}"
+      sleep "$delay"
+    else
+      printf 'last database probe error: %s\n' "${probe_error:-no error output}" >&2
+    fi
+  done
+
+  die "database did not become reachable after $retries attempts; check the configured PostgreSQL host and port"
+}
+
+wait_for_computer() {
+  local retries=${OUTCOMEGO_DEBUG_COMPUTER_RETRIES:-60}
+  local delay=${OUTCOMEGO_DEBUG_COMPUTER_RETRY_DELAY:-1}
+  local attempt health
+
+  [[ $retries =~ ^[1-9][0-9]*$ ]] || die "OUTCOMEGO_DEBUG_COMPUTER_RETRIES must be a positive integer"
+  [[ $delay =~ ^[0-9]+([.][0-9]+)?$ ]] || die "OUTCOMEGO_DEBUG_COMPUTER_RETRY_DELAY must be a non-negative number"
+
+  for ((attempt = 1; attempt <= retries; attempt++)); do
+    health=$(curl --noproxy '*' -fsS -m 8 "${OUTCOMEGO_COMPUTER_URL%/}/health" \
+      -H "authorization: Bearer ${OUTCOMEGO_CONTROL_TOKEN}" 2>/dev/null) || health=""
+    if [[ $health == *'"status":"ready"'* ]]; then
+      if ((attempt > 1)); then
+        echo "computer reachable after $attempt attempts"
+      fi
+      return 0
+    fi
+
+    if ((attempt < retries)); then
+      echo "waiting for computer ($attempt/$retries): ${OUTCOMEGO_COMPUTER_URL%/}"
+      sleep "$delay"
+    fi
+  done
+
+  die "computer did not become ready after $retries attempts; run scripts/dev/debug.sh check and inspect the remote computer project"
+}
+
 mount_share() {
   mkdir -p "$mount_point"
   if mount | grep -q " on $mount_point "; then return 0; fi
@@ -52,7 +122,7 @@ mount_share() {
   echo "mounted $mount_point"
 }
 
-prepare() { mount_share; load_env; cd "$root"; }
+prepare() { mount_share; load_env; wait_for_database; cd "$root"; }
 
 check() {
   local ok=1
@@ -98,6 +168,7 @@ kill_tree() {
 
 up() {
   prepare
+  wait_for_computer
   local pids=()
   # `bun --filter` spawns `bun --watch` as a grandchild, so stop the whole tree.
   trap 'for p in "${pids[@]}"; do kill_tree "$p"; done; wait 2>/dev/null || true' EXIT
@@ -125,7 +196,7 @@ case "${1:-}" in
   mount)   mount_share ;;
   up)      up ;;
   server)  prepare; exec bun --filter @outcomego/server dev ;;
-  worker)  prepare; exec bun --filter @outcomego/worker dev ;;
+  worker)  prepare; wait_for_computer; exec bun --filter @outcomego/worker dev ;;
   # Some terminal hosts export ELECTRON_RUN_AS_NODE=1, which turns Electron into plain Node and
   # makes `import { BrowserWindow } from "electron"` fail.
   desktop) prepare; unset ELECTRON_RUN_AS_NODE; exec bun --filter @outcomego/desktop dev ;;
