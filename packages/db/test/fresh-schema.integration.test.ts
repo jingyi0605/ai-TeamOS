@@ -27,12 +27,13 @@ test.skipIf(!url)("a fresh database receives the complete current schema and can
   await admin.query(`CREATE DATABASE "${name}"`);
   const target = new URL(url!);
   target.pathname = `/${name}`;
-  const db = new Client({ connectionString: target.toString() });
+  let db = new Client({ connectionString: target.toString() });
 
   try {
     await db.connect();
     await db.end();
     await deploy(target.toString());
+    db = new Client({ connectionString: target.toString() });
     await db.connect();
 
     const columns = await db.query<{ table_name: string; column_name: string }>(`
