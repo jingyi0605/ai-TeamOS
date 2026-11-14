@@ -134,8 +134,8 @@ fun NetworkSharingDetailsScreen(
                 DetailCard(
                     title = textFor(language, "Traffic", "流量"),
                     rows = listOf(
-                        textFor(language, "Sent", "发送") to formatBytes(details?.bytesSent ?: 0),
-                        textFor(language, "Received", "接收") to formatBytes(details?.bytesReceived ?: 0),
+                        textFor(language, "Sent", "发送") to trafficValue(details, details?.bytesSent ?: 0),
+                        textFor(language, "Received", "接收") to trafficValue(details, details?.bytesReceived ?: 0),
                     ),
                 )
             }
@@ -149,7 +149,26 @@ fun NetworkSharingDetailsScreen(
                     ),
                 )
             }
-            lastError?.takeIf(String::isNotBlank)?.let { message ->
+            details?.let { current ->
+                networkErrorText(current, language)?.let { message ->
+                    item {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(message, color = MaterialTheme.colorScheme.error, fontSize = 13.sp)
+                            if (current.routeSelectedToThisPhone && !current.egressAvailable) {
+                                Text(
+                                    textFor(
+                                        language,
+                                        "Switch the phone to Wi-Fi or mobile data with internet access, then refresh.",
+                                        "请将手机切换到可以访问互联网的 Wi-Fi 或移动数据网络，然后刷新状态。",
+                                    ),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 13.sp,
+                                )
+                            }
+                        }
+                    }
+                }
+            } ?: lastError?.takeIf(String::isNotBlank)?.let { message ->
                 item { Text(message, color = MaterialTheme.colorScheme.error, fontSize = 13.sp) }
             }
             item {
@@ -248,4 +267,38 @@ private fun formatBytes(bytes: Long): String {
         unit++
     }
     return "%.1f %s".format(value, units[unit])
+}
+
+private fun trafficValue(details: AndroidNetworkDetails?, bytes: Long): String =
+    if (details?.routeSelectedToThisPhone == true && !details.egressAvailable) "—" else formatBytes(bytes)
+
+private fun networkErrorText(
+    details: AndroidNetworkDetails,
+    language: AppSettings.Language,
+): String? = when {
+    details.egressErrorCode == "network_egress_unavailable" ->
+        textFor(
+            language,
+            "The phone is selected, but its current network cannot reach the public internet.",
+            "已选择本机，但手机当前网络无法访问公网。",
+        )
+    details.egressErrorCode == "network_egress_changed" ->
+        textFor(
+            language,
+            "The network route changed while it was being checked.",
+            "检查期间网络出口发生了变化。",
+        )
+    details.egressErrorCode == "computer_unavailable" ->
+        textFor(
+            language,
+            "The cloud computer network worker is unavailable.",
+            "云端电脑网络服务当前不可用。",
+        )
+    details.qualityErrorCode != null && details.egressAvailable ->
+        textFor(
+            language,
+            "The egress is connected, but the speed test is unavailable.",
+            "网络出口已连接，但速度测试暂时不可用。",
+        )
+    else -> details.error
 }
