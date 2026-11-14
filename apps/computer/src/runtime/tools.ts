@@ -1848,7 +1848,7 @@ export class RuntimeTools {
             },
             {
               name: "ReadBitwardenCredential",
-              description: "Read one approved Bitwarden username, password or TOTP into a short-lived Computer environment variable. The result contains only a browserReference; never ask for or expose the value.",
+              description: "Read one approved Bitwarden username, password or TOTP into a short-lived Computer environment variable. The result contains only a browserReference. Pass that exact browserReference string as browser_type.text or browser_fill_form.fields[].value; never use Shell expansion, secret:true, browser_run_code, or ask for or expose the value.",
               inputSchema: objectToolSchema({ itemId: { type: "string" }, field: { type: "string", enum: ["username", "password", "totp"] } }, ["itemId", "field"]),
               source: "first-party",
               decodeArguments: (args) => args ?? {},

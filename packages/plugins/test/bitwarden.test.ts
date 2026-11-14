@@ -26,6 +26,9 @@ test("Bitwarden packages a portable main/computerUse skill, five runtime fields 
   for (const file of ["bw.sh", "bw.py", "ensure-cli.sh"])
     expect(imported.files?.[`skills/bitwarden/scripts/${file}`]).toBeTruthy();
   expect(plugin.skills[0]!.body).toContain("browserReference");
+  expect(plugin.skills[0]!.body).toContain("完整原样");
+  expect(plugin.skills[0]!.body).toContain("不要使用 `$VAR`");
+  expect(plugin.skills[0]!.body).toContain("`browser_run_code`");
   expect(plugin.skills[0]!.body).toContain("不会把值返回到对话上下文");
   expect(plugin.skills[0]!.body).toContain("RequestBitwardenReadApproval");
   expect(plugin.skills[0]!.body).toContain("每个 item、每次任务");
