@@ -241,6 +241,7 @@ class HttpMobileGateway(context: Context) :
                     subtitle = channel.string("description"),
                     isGroup = true,
                     memberBotIds = channel.arrayAt("members").mapNotNull { it.jsonObjectOrNull()?.string("botId")?.takeIf(String::isNotBlank) },
+                    avatarPath = cacheChannelAvatar(ensureConnected(), token, channel),
                 )
             }
         return hiddenBots + hiddenGroups
@@ -485,6 +486,11 @@ class HttpMobileGateway(context: Context) :
         bots = bootstrap.arrayAt("bots").mapNotNull { it.jsonObjectOrNull() }.associateBy { it.string("id") }
         channels = bootstrap.arrayAt("channels").mapNotNull { it.jsonObjectOrNull() }.associateBy { it.string("id") }
         val avatarPaths = bots.mapValues { (_, bot) -> cacheBotAvatar(activeServer, activeToken, bot) }
+        val groupAvatarPaths = channels.values
+            .filter { it.string("kind") == "group" }
+            .associate { channel ->
+                channel.string("id") to cacheChannelAvatar(activeServer, activeToken, channel)
+            }
         // Bootstrap carries each channel's newest message so the list can show a preview
         // without downloading full histories.
         val latestByChannel = bootstrap.arrayAt("latestMessages")
@@ -508,7 +514,11 @@ class HttpMobileGateway(context: Context) :
                     subtitle = if (kind == "bot_dm") bot?.string("description").orEmpty() else channel.string("description"),
                     unread = channel.int("unreadCount").coerceAtLeast(0),
                     avatarColor = bot?.string("color").orEmpty(),
-                    avatarPath = bot?.let { avatarPaths[it.string("id")] },
+                    avatarPath = if (kind == "group") {
+                        groupAvatarPaths[channelId]
+                    } else {
+                        bot?.let { avatarPaths[it.string("id")] }
+                    },
                     botId = botId.ifBlank { null },
                     isBot = kind == "bot_dm",
                     isGroup = kind == "group",
@@ -545,6 +555,33 @@ class HttpMobileGateway(context: Context) :
             val temporary = java.io.File(file.parentFile, "$key.tmp")
             temporary.writeBytes(response.bodyBytes)
             check(temporary.renameTo(file)) { "Could not cache bot avatar." }
+            file.absolutePath
+        }.getOrNull()
+    }
+
+    private suspend fun cacheChannelAvatar(
+        activeServer: String,
+        activeToken: String?,
+        channel: JsonObject,
+    ): String? {
+        if (!channel.boolean("hasAvatar") || channel.string("id").isBlank()) return null
+        val channelId = channel.string("id")
+        val revision = channel.string("updatedAt").ifBlank { "current" }
+        val key = java.security.MessageDigest.getInstance("SHA-256")
+            .digest("channel:$channelId:$revision".toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+        val file = java.io.File(appContext.cacheDir, "avatars/$key.channel")
+        if (file.isFile && file.length() > 0) return file.absolutePath
+        return runCatching {
+            val response = transport.download(
+                activeServer,
+                activeToken,
+                "/api/v0/channels/${pathSegment(channelId)}/avatar",
+            ).requireSuccess()
+            file.parentFile?.mkdirs()
+            val temporary = java.io.File(file.parentFile, "$key.tmp")
+            temporary.writeBytes(response.bodyBytes)
+            check(temporary.renameTo(file)) { "Could not cache channel avatar." }
             file.absolutePath
         }.getOrNull()
     }
