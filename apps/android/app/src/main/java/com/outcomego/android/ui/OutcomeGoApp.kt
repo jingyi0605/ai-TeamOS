@@ -84,6 +84,7 @@ import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
@@ -173,6 +174,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavType
@@ -497,7 +499,11 @@ fun OutcomeGoApp(
                     }
                 },
                 onBotDetails = { conversation ->
-                    navController.navigate("bot/${conversation.id}/details")
+                    if (conversation.isGroup) {
+                        navController.navigate("conversation/${conversation.id}/profile")
+                    } else {
+                        navController.navigate("bot/${conversation.id}/details")
+                    }
                 },
                 onTogglePin = appViewModel::togglePinned,
                 onMoveToSection = { conversationId, sectionId ->
@@ -592,6 +598,7 @@ fun OutcomeGoApp(
             LaunchedEffect(id) { if (state.activeConversationId != id) appViewModel.openConversation(id) }
             ChatScreen(
                 conversationId = id,
+                accountName = state.session?.accountName.orEmpty(),
                 title = conversation?.title ?: localizedText("Conversation", "对话"),
                 messages = state.messages,
                 targetMessageId = state.activeMessageId,
@@ -602,7 +609,13 @@ fun OutcomeGoApp(
                 onOpenRoutine = { navController.navigate(ROUTINES) },
                 error = state.error,
                 onBack = { navController.popBackStack() },
-                onBotDetails = { navController.navigate("bot/$id/details") },
+                onBotDetails = {
+                    if (conversation?.isGroup == true) {
+                        navController.navigate("conversation/$id/profile")
+                    } else {
+                        navController.navigate("bot/$id/details")
+                    }
+                },
                 onDraftChange = appViewModel::updateDraft,
                 onSend = appViewModel::sendDraft,
                 onRetry = appViewModel::retryMessage,
@@ -755,6 +768,7 @@ fun OutcomeGoApp(
                 loading = state.searchLoading,
                 error = state.searchError,
                 conversations = state.conversations,
+                accountName = state.session?.accountName.orEmpty(),
                 onSearch = { query -> appViewModel.search(query, "messages") },
                 onOpen = { result ->
                     result.channelId?.let { channelId ->
@@ -1157,6 +1171,7 @@ private fun MessageSearchScreen(
     loading: Boolean,
     error: String?,
     conversations: List<Conversation>,
+    accountName: String,
     onSearch: (String) -> Unit,
     onOpen: (SearchResult) -> Unit,
     onBack: () -> Unit,
@@ -1194,6 +1209,7 @@ private fun MessageSearchScreen(
                     loading = loading,
                     error = error,
                     conversations = conversations,
+                    accountName = accountName,
                     onSelect = onOpen,
                 )
             }
@@ -1781,6 +1797,7 @@ private fun DirectoryScreen(
                             loading = searchLoading,
                             error = searchError,
                             conversations = rows,
+                            accountName = accountName,
                             onSelect = onOpenSearchResult,
                         )
                     }
@@ -1797,6 +1814,8 @@ private fun DirectoryScreen(
                     items(pinnedRows, key = { "pinned-${it.id}" }) { row ->
                         PinnedBotCard(
                             conversation = row,
+                            accountName = accountName,
+                            members = groupMembers(row, rows),
                             unread = row.unread > 0 || sidebar.isUnread(row.id),
                             onClick = { onOpen(row) },
                             onLongClick = { onTogglePin(row.id) },
@@ -1825,6 +1844,8 @@ private fun DirectoryScreen(
                         items(members, key = Conversation::id) { row ->
                             DirectoryConversationRow(
                                 row = row,
+                                accountName = accountName,
+                                members = groupMembers(row, rows),
                                 unread = row.unread > 0 || sidebar.isUnread(row.id),
                                 pinned = false,
                                 sections = sidebar.sections,
@@ -1853,6 +1874,8 @@ private fun DirectoryScreen(
                     items(unassignedRows, key = Conversation::id) { row ->
                         DirectoryConversationRow(
                             row = row,
+                            accountName = accountName,
+                            members = groupMembers(row, rows),
                             unread = row.unread > 0 || sidebar.isUnread(row.id),
                             pinned = false,
                             sections = sidebar.sections,
@@ -1878,6 +1901,7 @@ private fun SearchResultsList(
     loading: Boolean,
     error: String?,
     conversations: List<Conversation>,
+    accountName: String,
     onSelect: (SearchResult) -> Unit,
 ) {
     LazyColumn(
@@ -1905,6 +1929,8 @@ private fun SearchResultsList(
             SearchResultRow(
                 result = result,
                 conversation = conversations.firstOrNull { it.id == result.channelId },
+                accountName = accountName,
+                members = conversations.firstOrNull { it.id == result.channelId }?.let { groupMembers(it, conversations) }.orEmpty(),
                 onClick = { onSelect(result) },
             )
         }
@@ -1924,6 +1950,8 @@ private fun SearchResultsList(
 private fun SearchResultRow(
     result: SearchResult,
     conversation: Conversation?,
+    accountName: String,
+    members: List<Conversation>,
     onClick: () -> Unit,
 ) {
     Row(
@@ -1933,7 +1961,7 @@ private fun SearchResultRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (conversation != null) {
-            BotAvatar(conversation, size = 46.dp)
+            ConversationAvatar(conversation, accountName, members, size = 46.dp)
         } else {
             Box(
                 Modifier.size(46.dp).clip(CircleShape)
@@ -2022,10 +2050,20 @@ private fun SearchFilterRow(selected: SearchFilter, onSelected: (SearchFilter) -
     }
 }
 
+private fun groupMembers(group: Conversation, rows: List<Conversation>): List<Conversation> {
+    if (!group.isGroup) return emptyList()
+    val botsById = rows
+        .filter { it.isBot && !it.botId.isNullOrBlank() }
+        .associateBy { it.botId }
+    return group.memberBotIds.mapNotNull(botsById::get)
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun PinnedBotCard(
     conversation: Conversation,
+    accountName: String,
+    members: List<Conversation>,
     unread: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -2041,7 +2079,7 @@ private fun PinnedBotCard(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box {
-            BotAvatar(conversation, size = 80.dp, showWorking = true)
+            ConversationAvatar(conversation, accountName, members, size = 80.dp, showWorking = true)
             if (unread) {
                 Box(
                     Modifier.align(Alignment.BottomEnd).size(13.dp).clip(CircleShape)
@@ -2064,6 +2102,8 @@ private fun PinnedBotCard(
 @Composable
 private fun DirectoryConversationRow(
     row: Conversation,
+    accountName: String,
+    members: List<Conversation>,
     unread: Boolean,
     pinned: Boolean,
     sections: List<SidebarSection>,
@@ -2092,7 +2132,7 @@ private fun DirectoryConversationRow(
                 .padding(vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            BotAvatar(row, size = 46.dp, showWorking = true)
+            ConversationAvatar(row, accountName, members, size = 46.dp, showWorking = true)
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2140,7 +2180,12 @@ private fun DirectoryConversationRow(
                 onClick = { onDismissMenu(); onTogglePin() },
             )
             DropdownMenuItem(
-                text = { Text(localizedText("Bot details", "机器人详情")) },
+                text = {
+                    Text(
+                        if (row.isGroup) localizedText("Group settings", "群聊设置")
+                        else localizedText("Bot details", "机器人详情"),
+                    )
+                },
                 onClick = { onDismissMenu(); onBotDetails() },
             )
             sections.forEach { section ->
@@ -2197,6 +2242,111 @@ private fun conversationTimestampLabel(iso: String?, yesterday: String): String?
     }
 }
 
+@Composable
+private fun ConversationAvatar(
+    conversation: Conversation,
+    accountName: String,
+    members: List<Conversation>,
+    size: androidx.compose.ui.unit.Dp,
+    showWorking: Boolean = false,
+    ringColor: Color = MaterialTheme.colorScheme.surfaceVariant,
+) {
+    if (conversation.isGroup) {
+        GroupAvatar(
+            conversation = conversation,
+            accountName = accountName,
+            members = members,
+            size = size,
+            showWorking = showWorking,
+            ringColor = ringColor,
+        )
+    } else {
+        BotAvatar(conversation, size = size, showWorking = showWorking, ringColor = ringColor)
+    }
+}
+
+@Composable
+private fun GroupAvatar(
+    conversation: Conversation,
+    accountName: String,
+    members: List<Conversation>,
+    size: androidx.compose.ui.unit.Dp,
+    showWorking: Boolean = false,
+    ringColor: Color = MaterialTheme.colorScheme.surfaceVariant,
+) {
+    val avatar = rememberDecodedBitmap(conversation.avatarPath, maxSizePx = (size.value * 4).toInt())
+    val visibleMembers = members.take(2)
+    val memberSize = if (visibleMembers.size == 1) size * (2f / 3f) else size * (5f / 9f)
+    val accountSize = if (visibleMembers.isEmpty()) size else memberSize
+    Box(Modifier.size(size)) {
+        if (avatar != null) {
+            Image(
+                bitmap = avatar,
+                contentDescription = conversation.title,
+                modifier = Modifier.size(size).clip(CircleShape),
+                contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+            )
+        } else if (visibleMembers.isEmpty()) {
+            Box(
+                Modifier.size(size).clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                    .border(.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = .45f), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    Icons.Default.Group,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                    modifier = Modifier.size(size * .55f),
+                )
+            }
+        } else {
+            Box(
+                Modifier.align(if (visibleMembers.size == 1) Alignment.TopStart else Alignment.TopCenter)
+                    .size(accountSize)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .border(.5.dp, MaterialTheme.colorScheme.outline.copy(alpha = .55f), CircleShape),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    accountInitials(accountName),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = (size.value * if (visibleMembers.size == 1) .17f else .11f).sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                )
+            }
+            visibleMembers.forEachIndexed { index, member ->
+                Box(
+                    Modifier.align(if (visibleMembers.size == 1 || index == 1) Alignment.BottomEnd else Alignment.BottomStart)
+                        .size(memberSize)
+                        .clip(CircleShape),
+                ) {
+                    BotAvatar(member, size = memberSize)
+                }
+            }
+        }
+        if (showWorking && conversation.working) {
+            val dot = (size.value * .26f).coerceIn(10f, 18f).dp
+            Box(
+                Modifier.align(Alignment.BottomEnd).size(dot).clip(CircleShape)
+                    .background(Color(0xFF5BC67A))
+                    .border(2.dp, ringColor, CircleShape)
+                    .semantics { contentDescription = "Working" },
+            )
+        }
+    }
+}
+
+private fun accountInitials(accountName: String): String {
+    val parts = accountName.trim().split(Regex("\\s+")).filter(String::isNotBlank)
+    return parts
+        .take(2)
+        .mapNotNull { it.firstOrNull()?.uppercaseChar() }
+        .joinToString("")
+        .ifBlank { accountName.trim().take(1).uppercase().ifBlank { "U" } }
+}
 
 @Composable
 private fun BotAvatar(
@@ -2974,6 +3124,7 @@ private fun IosChromeIcon(
 @Composable
 private fun ChatScreen(
     conversationId: String,
+    accountName: String,
     title: String,
     messages: List<ChatMessage>,
     targetMessageId: String?,
@@ -3127,7 +3278,20 @@ private fun ChatScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(title) },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (bot?.isGroup == true) {
+                            ConversationAvatar(
+                                conversation = bot,
+                                accountName = accountName,
+                                members = groupMembers,
+                                size = 32.dp,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                },
                 navigationIcon = {
                     IconButton(
                         onClick = onBack,
@@ -3283,7 +3447,14 @@ private fun ChatScreen(
                     },
                 )
             }
-            item(key = "bot-activity") { BotActivityRow(activity, bot) }
+            item(key = "bot-activity") {
+                BotActivityRow(
+                    activity = activity,
+                    bot = bot,
+                    accountName = accountName,
+                    members = groupMembers,
+                )
+            }
             item { Spacer(Modifier.height(4.dp)) }
         }
     }
@@ -3382,7 +3553,12 @@ private fun VoiceMemberPickerDialog(
 }
 
 @Composable
-private fun BotActivityRow(activity: ChannelActivity?, bot: Conversation?) {
+private fun BotActivityRow(
+    activity: ChannelActivity?,
+    bot: Conversation?,
+    accountName: String,
+    members: List<Conversation>,
+) {
     // Keep the last caption while the row animates out.
     var shown by remember { mutableStateOf(activity) }
     if (activity != null) shown = activity
@@ -3404,7 +3580,15 @@ private fun BotActivityRow(activity: ChannelActivity?, bot: Conversation?) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            if (bot != null) BotAvatar(bot, size = 22.dp, ringColor = MaterialTheme.colorScheme.background)
+            if (bot != null) {
+                ConversationAvatar(
+                    conversation = bot,
+                    accountName = accountName,
+                    members = members,
+                    size = 22.dp,
+                    ringColor = MaterialTheme.colorScheme.background,
+                )
+            }
             AnimatedContent(
                 targetState = label,
                 transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
