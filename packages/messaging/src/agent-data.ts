@@ -2507,10 +2507,7 @@ export class AgentDataStore {
   }
 
   async writeRoutine(botId: string, id: string, transaction?: Tx): Promise<void> {
-    const write = async (tx: Tx): Promise<void> => {
-      const routine = await tx.routine.findFirst({
-        where: { id, botId, deletedAt: null, bot: { status: "active" } },
-      });
+    const write = async (routine: Awaited<ReturnType<Tx["routine"]["findFirst"]>>) => {
       if (!routine) return;
       await writeAutomationFiles(this.botDirectory(botId), {
         ...routine,
@@ -2518,8 +2515,27 @@ export class AgentDataStore {
         runLedger: routine.runLedger,
       });
     };
-    if (transaction) return write(transaction);
-    await this.withFileMutation(botId, `routine:${id}`, write);
+    if (transaction) {
+      return write(
+        await transaction.routine.findFirst({
+          where: { id, botId, deletedAt: null, bot: { status: "active" } },
+        })
+      );
+    }
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const routine = await this.prisma.routine.findFirst({
+        where: { id, botId, deletedAt: null, bot: { status: "active" } },
+      });
+      if (!routine) return;
+      await write(routine);
+      const latest = await this.prisma.routine.findUnique({
+        where: { id },
+        select: { revision: true, slug: true, deletedAt: true },
+      });
+      if (latest?.revision === routine.revision && latest.slug === routine.slug && !latest.deletedAt) {
+        return;
+      }
+    }
   }
 
   async listRoutineFolderIds(botId: string): Promise<string[]> {
@@ -2528,14 +2544,10 @@ export class AgentDataStore {
   }
 
   async deleteRoutine(botId: string, id: string, transaction?: Tx): Promise<void> {
-    const remove = async (tx: Tx): Promise<void> => {
-      const routine = await tx.routine.findFirst({
-        where: { id, botId },
-      });
-      if (routine) await deleteAutomationFolder(this.botDirectory(botId), routine.slug);
-    };
-    if (transaction) return remove(transaction);
-    await this.withFileMutation(botId, `routine:${id}`, remove);
+    const routine = await (transaction ?? this.prisma).routine.findFirst({
+      where: { id, botId },
+    });
+    if (routine) await deleteAutomationFolder(this.botDirectory(botId), routine.slug);
   }
 
   async promptContext(botId: string, contextSessionId: string, channelId?: string | null): Promise<AgentPromptContext> {

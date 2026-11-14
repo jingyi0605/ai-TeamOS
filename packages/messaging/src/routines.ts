@@ -21,6 +21,7 @@ const MIN_INTERVAL_SECONDS = 5 * 60;
 // The interval is stored in a 32-bit column.
 const MAX_INTERVAL_SECONDS = 2_147_483_647;
 const MAX_ROUTINES_PER_OWNER = 50;
+const ROUTINE_TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 const TOO_FREQUENT = () =>
   new ApiError(400, "routine_schedule_too_frequent", "routine schedules must be at least 5 minutes apart.");
 
@@ -142,6 +143,9 @@ const routineOwnerData = (owner: RoutineOwner) =>
   owner.kind === "bot"
     ? { botId: owner.id, channelId: null }
     : { botId: null, channelId: owner.id };
+
+const configureRoutineTransaction = (tx: Prisma.TransactionClient) =>
+  tx.$executeRaw`SET LOCAL lock_timeout = '5s'`;
 
 const lockedOwnedRoutine = async (tx: Prisma.TransactionClient, owner: RoutineOwner, id: string) => {
   const where = { ...routineOwnerWhere(owner), deletedAt: null, ...routineIdentifierWhere(id) };
@@ -1044,6 +1048,7 @@ export class RoutineService {
     let result;
     try {
       result = await this.prisma.$transaction(async (tx) => {
+        await configureRoutineTransaction(tx);
         const routine = await lockedOwnedRoutine(tx, owner, id);
         if (event && (!routine.enabled || !matchesAutomationEvent(parseStoredTrigger(routine.trigger), event))) throw new ApiError(409, "routine_event_inactive", "Routine no longer accepts this event");
         const eventKey = event ? createHash("sha256").update(`${event.source}:${event.id}`).digest("hex") : requestId;
@@ -1176,7 +1181,7 @@ export class RoutineService {
           },
         });
         return queued;
-      });
+      }, ROUTINE_TRANSACTION_OPTIONS);
     } catch (error) {
       if ((error as { code?: string }).code !== "P2002") throw error;
       const routine = await this.prisma.routine.findFirst({
@@ -1371,13 +1376,25 @@ export class RoutineService {
   /** After a group routine's run settles, outside the room transaction that settled it: a
    * finished PR watch deletes itself, and events that arrived meanwhile start the next turn. */
   async afterGroupExecution(settled: { executionId: string; routineId: string }) {
-    await this.prisma.$transaction((tx) => this.finishTerminalWatch(tx, settled.executionId));
+    await this.prisma.$transaction(
+      async (tx) => {
+        await configureRoutineTransaction(tx);
+        return this.finishTerminalWatch(tx, settled.executionId);
+      },
+      ROUTINE_TRANSACTION_OPTIONS
+    );
     await this.runEventFollowUp(settled.routineId);
   }
 
   /** startEventFollowUp in its own transaction, then the first room turn of a group follow-up. */
   async runEventFollowUp(routineId: string): Promise<boolean> {
-    const started = await this.prisma.$transaction((tx) => this.startEventFollowUp(tx, routineId));
+    const started = await this.prisma.$transaction(
+      async (tx) => {
+        await configureRoutineTransaction(tx);
+        return this.startEventFollowUp(tx, routineId);
+      },
+      ROUTINE_TRANSACTION_OPTIONS
+    );
     if (started && started.roundId) await this.advanceGroupRound(started.roundId);
     return Boolean(started);
   }
@@ -1414,7 +1431,8 @@ export class RoutineService {
     const zone = await readUserTimeZone(this.prisma);
     const { schedule, trigger } = normalizeRoutineMutationTrigger(input, zone);
     const enabled = input.enabled ?? true;
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
+      await configureRoutineTransaction(tx);
       if (owner.kind === "bot") {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${owner.id}`}))`;
       }
@@ -1504,9 +1522,10 @@ export class RoutineService {
         },
       });
       await appendRoutineChangedEvent(tx, this.host, owner, callId, routine, "created", now);
-      if (owner.kind === "bot") await this.files?.writeRoutine(owner.id, routine.id, tx);
       return { ...view(routine), action: "create", created: true };
-    });
+    }, ROUTINE_TRANSACTION_OPTIONS);
+    if (owner.kind === "bot") await this.files?.writeRoutine(owner.id, String(result.id));
+    return result;
   }
 
   private async update(
@@ -1516,7 +1535,8 @@ export class RoutineService {
     input: RoutineMutationInput
   ) {
     const id = required(input.id, "id");
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
+      await configureRoutineTransaction(tx);
       if (owner.kind === "bot") {
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`agent-files:${owner.id}`}))`;
       }
@@ -1617,9 +1637,10 @@ export class RoutineService {
       if (timelineAction) {
         await appendRoutineChangedEvent(tx, this.host, owner, callId, routine, timelineAction, now);
       }
-      if (owner.kind === "bot") await this.files?.writeRoutine(owner.id, routine.id, tx);
       return { ...view(routine), action: "update", updated: true };
-    });
+    }, ROUTINE_TRANSACTION_OPTIONS);
+    if (owner.kind === "bot") await this.files?.writeRoutine(owner.id, String(result.id));
+    return result;
   }
 
   private async lifecycle(
@@ -1629,7 +1650,15 @@ export class RoutineService {
     input: RoutineMutationInput
   ) {
     const id = required(input.id, "id");
-    return this.prisma.$transaction((tx) => this.lifecycleIn(tx, owner, callId, runId, input, id));
+    const result = await this.prisma.$transaction(async (tx) => {
+      await configureRoutineTransaction(tx);
+      return this.lifecycleIn(tx, owner, callId, runId, input, id);
+    }, ROUTINE_TRANSACTION_OPTIONS);
+    if (owner.kind === "bot" && !("unchanged" in result && result.unchanged)) {
+      if (result.deleted) await this.files?.deleteRoutine(owner.id, String(result.id));
+      else await this.files?.writeRoutine(owner.id, String(result.id));
+    }
+    return result;
   }
 
   private async lifecycleIn(
@@ -1731,10 +1760,6 @@ export class RoutineService {
       deleted ? "deleted" : enabled ? "enabled" : "disabled",
       now
     );
-    if (owner.kind === "bot") {
-      if (deleted) await this.files?.deleteRoutine(owner.id, routine.id, tx);
-      else await this.files?.writeRoutine(owner.id, routine.id, tx);
-    }
     return {
       ...view(routine),
       action: input.action,
@@ -1782,6 +1807,7 @@ export class RoutineService {
       let outcome: { didDispatch: boolean; roundId: string | null };
       try {
         outcome = await this.prisma.$transaction(async (tx) => {
+        await configureRoutineTransaction(tx);
         await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine:${candidate.id}`}))`;
         const routine = await tx.routine.findUnique({
           where: { id: candidate.id },
@@ -1943,7 +1969,7 @@ export class RoutineService {
           },
         });
         return { didDispatch: true, roundId };
-        });
+        }, ROUTINE_TRANSACTION_OPTIONS);
       } catch (error) {
         // Another scheduler may have committed this occurrence while this
         // transaction was racing with it. The unique dedupe key is the
@@ -1965,6 +1991,7 @@ export class RoutineService {
 
   private async recordDispatchFailure(id: string, now: Date, failure: unknown): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      await configureRoutineTransaction(tx);
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`routine:${id}`}))`;
       const routine = await tx.routine.findUnique({ where: { id } });
       if (!routine?.enabled || routine.deletedAt || !routine.nextRunAt || routine.nextRunAt > now) return;
@@ -1985,6 +2012,6 @@ export class RoutineService {
         runLedger: appendRoutineRunLedger(routine.runLedger, { id: execution.id, trigger: "schedule", startedAt: now.getTime(), finishedAt: now.getTime(), status: "error", errorKind: error.code }),
       } });
       await tx.event.create({ data: { topic: "routine.execution.failed", entityId: execution.id, payload: { executionId: execution.id, routineId: id, error } } });
-    });
+    }, ROUTINE_TRANSACTION_OPTIONS);
   }
 }
