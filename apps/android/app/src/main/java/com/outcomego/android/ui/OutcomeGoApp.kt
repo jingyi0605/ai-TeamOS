@@ -78,7 +78,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Reply
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Computer
@@ -135,9 +134,23 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material3.Surface
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.layoutId
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.outcomego.features.AndroidHaptics
@@ -3274,6 +3287,18 @@ private fun ChatScreen(
         )
     }
     val haptic = LocalAppHaptics.current
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val composerFocusRequester = remember { FocusRequester() }
+    var isComposerFocused by remember(conversationId) { mutableStateOf(false) }
+    val imeOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
+    var wasImeOpen by remember(conversationId) { mutableStateOf(false) }
+    LaunchedEffect(imeOpen) {
+        if (wasImeOpen && !imeOpen && isComposerFocused) {
+            focusManager.clearFocus()
+        }
+        wasImeOpen = imeOpen
+    }
     var pickingVoiceMembers by remember { mutableStateOf(false) }
     if (pickingVoiceMembers) {
         VoiceMemberPickerDialog(
@@ -3375,27 +3400,23 @@ private fun ChatScreen(
                 replyingTo?.let { target ->
                     ReplyPreviewBar(target, onCancelReply)
                 }
-                Row(verticalAlignment = Alignment.Bottom) {
-                    IconButton(onClick = { haptic.play(HapticEffect.Light); attachmentPicker.launch(arrayOf("*/*")) }) { Icon(Icons.Default.Add, contentDescription = stringResource(com.outcomego.android.R.string.chat_add_attachment)) }
-                    OutlinedTextField(
-                        value = draft,
-                        onValueChange = onDraftChange,
-                        modifier = Modifier.weight(1f).testTag("message-composer"),
-                        placeholder = { Text(stringResource(com.outcomego.android.R.string.chat_message)) },
-                        shape = RoundedCornerShape(24.dp),
-                        maxLines = 5,
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    IconButton(onClick = { haptic.play(HapticEffect.Medium); onStartVoice() }, enabled = voiceState is VoiceRecordingState.Idle, modifier = Modifier.testTag("voice-composer")) {
-                        Icon(Icons.Default.Mic, contentDescription = stringResource(com.outcomego.android.R.string.chat_record_voice))
-                    }
-                    IconButton(onClick = { haptic.play(HapticEffect.Light); onSend() }, enabled = draft.isNotBlank() || pendingAttachments.isNotEmpty(), modifier = Modifier.testTag("send-message").clip(CircleShape).background(MaterialTheme.colorScheme.primary)) {
-                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = stringResource(com.outcomego.android.R.string.chat_send), tint = MaterialTheme.colorScheme.onPrimary)
-                    }
-                }
                 if (pendingAttachments.isNotEmpty()) {
-                    ChatAttachmentStrip(pendingAttachments, onPreview = { _, _ -> }, onDownload = { _, _ -> })
+                    Box(Modifier.padding(bottom = 8.dp)) {
+                        ChatAttachmentStrip(pendingAttachments, onPreview = { _, _ -> }, onDownload = { _, _ -> })
+                    }
                 }
+                ChatComposer(
+                    draft = draft,
+                    onDraftChange = onDraftChange,
+                    hasPendingAttachments = pendingAttachments.isNotEmpty(),
+                    voiceState = voiceState,
+                    onAttach = { attachmentPicker.launch(arrayOf("*/*")) },
+                    onStartVoice = onStartVoice,
+                    onSend = onSend,
+                    isFocused = isComposerFocused,
+                    onFocusChange = { isComposerFocused = it },
+                    focusRequester = composerFocusRequester,
+                )
                 when (operation) {
                     FeatureOperationState.Idle -> Unit
                     FeatureOperationState.Pending -> Text(localizedText("Working…", "处理中…"), Modifier.testTag("chat-operation-status"), style = MaterialTheme.typography.bodySmall)
@@ -3408,7 +3429,22 @@ private fun ChatScreen(
     ) { padding ->
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 16.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 16.dp)
+                .pointerInput(isComposerFocused) {
+                    if (!isComposerFocused) return@pointerInput
+                    val touchSlop = viewConfiguration.touchSlop
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val up = waitForUpOrCancellation()
+                        if (up != null && !up.isConsumed && (up.position - down.position).getDistance() < touchSlop) {
+                            focusManager.clearFocus()
+                            keyboardController?.hide()
+                        }
+                    }
+                },
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (hasMoreHistory) {
@@ -3466,6 +3502,182 @@ private fun ChatScreen(
                 )
             }
             item { Spacer(Modifier.height(4.dp)) }
+        }
+    }
+}
+
+/**
+ * ChatGPT-style pill composer: collapses to a single row with attachment and voice/send controls
+ * inside the container when unfocused, and splits into a full-width text row plus a bottom tool
+ * row when focused.
+ */
+@Composable
+internal fun ChatComposer(
+    draft: String,
+    onDraftChange: (String) -> Unit,
+    hasPendingAttachments: Boolean,
+    voiceState: VoiceRecordingState,
+    onAttach: () -> Unit,
+    onStartVoice: () -> Unit,
+    onSend: () -> Unit,
+    isFocused: Boolean,
+    onFocusChange: (Boolean) -> Unit,
+    focusRequester: FocusRequester,
+    modifier: Modifier = Modifier,
+) {
+    val haptic = LocalAppHaptics.current
+    val canSend = draft.isNotBlank() || hasPendingAttachments
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag("composer-container")
+            .animateContentSize(animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)),
+        shape = RoundedCornerShape(26.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)),
+    ) {
+        Layout(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 6.dp),
+            content = {
+                Box(Modifier.layoutId("attach"), contentAlignment = Alignment.Center) {
+                    IconButton(
+                        onClick = { haptic.play(HapticEffect.Light); onAttach() },
+                        modifier = Modifier.size(40.dp).testTag("attach-composer"),
+                    ) {
+                        Icon(
+                            Icons.Default.Add,
+                            contentDescription = stringResource(com.outcomego.android.R.string.chat_add_attachment),
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+                Box(Modifier.layoutId("input")) {
+                    BasicTextField(
+                        value = draft,
+                        onValueChange = onDraftChange,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester)
+                            .onFocusChanged { onFocusChange(it.isFocused) }
+                            .testTag("message-composer"),
+                        textStyle = MaterialTheme.typography.bodyLarge.copy(
+                            color = MaterialTheme.colorScheme.onSurface,
+                        ),
+                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                        maxLines = if (isFocused) 5 else 1,
+                        keyboardOptions = KeyboardOptions(
+                            capitalization = KeyboardCapitalization.Sentences,
+                        ),
+                        decorationBox = { innerTextField ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .then(
+                                        if (isFocused) {
+                                            Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                        } else {
+                                            Modifier.heightIn(min = 40.dp).padding(horizontal = 4.dp, vertical = 8.dp)
+                                        },
+                                    ),
+                                contentAlignment = if (isFocused) Alignment.TopStart else Alignment.CenterStart,
+                            ) {
+                                if (draft.isEmpty()) {
+                                    Text(
+                                        text = stringResource(com.outcomego.android.R.string.chat_message),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.52f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        },
+                    )
+                }
+                Box(Modifier.layoutId("action"), contentAlignment = Alignment.Center) {
+                    if (canSend) {
+                        IconButton(
+                            onClick = { haptic.play(HapticEffect.Light); onSend() },
+                            modifier = Modifier.size(40.dp).testTag("send-message"),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Default.ArrowUpward,
+                                    contentDescription = stringResource(com.outcomego.android.R.string.chat_send),
+                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.size(19.dp),
+                                )
+                            }
+                        }
+                    } else {
+                        IconButton(
+                            onClick = { haptic.play(HapticEffect.Medium); onStartVoice() },
+                            enabled = voiceState is VoiceRecordingState.Idle,
+                            modifier = Modifier.size(40.dp).testTag("voice-composer"),
+                        ) {
+                            Icon(
+                                Icons.Default.Mic,
+                                contentDescription = stringResource(com.outcomego.android.R.string.chat_record_voice),
+                                tint = MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.size(22.dp),
+                            )
+                        }
+                    }
+                }
+            },
+        ) { measurables, constraints ->
+            val buttonConstraints = constraints.copy(minWidth = 0, minHeight = 0)
+            val attachPlaceable = measurables.first { it.layoutId == "attach" }.measure(buttonConstraints)
+            val actionPlaceable = measurables.first { it.layoutId == "action" }.measure(buttonConstraints)
+            val maxWidth = constraints.maxWidth
+            if (!isFocused) {
+                val gapPx = 4.dp.roundToPx()
+                val inputWidth = (maxWidth - attachPlaceable.width - actionPlaceable.width - gapPx * 2).coerceAtLeast(0)
+                val inputPlaceable = measurables.first { it.layoutId == "input" }.measure(
+                    constraints.copy(minWidth = inputWidth, maxWidth = inputWidth, minHeight = 0),
+                )
+                val rowHeight = maxOf(attachPlaceable.height, actionPlaceable.height, inputPlaceable.height)
+                layout(maxWidth, rowHeight) {
+                    attachPlaceable.placeRelative(
+                        x = 0,
+                        y = (rowHeight - attachPlaceable.height) / 2,
+                    )
+                    inputPlaceable.placeRelative(
+                        x = attachPlaceable.width + gapPx,
+                        y = (rowHeight - inputPlaceable.height) / 2,
+                    )
+                    actionPlaceable.placeRelative(
+                        x = maxWidth - actionPlaceable.width,
+                        y = (rowHeight - actionPlaceable.height) / 2,
+                    )
+                }
+            } else {
+                val rowGapPx = 4.dp.roundToPx()
+                val inputPlaceable = measurables.first { it.layoutId == "input" }.measure(
+                    constraints.copy(minWidth = maxWidth, maxWidth = maxWidth, minHeight = 0),
+                )
+                val toolRowHeight = maxOf(attachPlaceable.height, actionPlaceable.height)
+                val totalHeight = inputPlaceable.height + rowGapPx + toolRowHeight
+                layout(maxWidth, totalHeight) {
+                    inputPlaceable.placeRelative(x = 0, y = 0)
+                    attachPlaceable.placeRelative(
+                        x = 0,
+                        y = inputPlaceable.height + rowGapPx + (toolRowHeight - attachPlaceable.height) / 2,
+                    )
+                    actionPlaceable.placeRelative(
+                        x = maxWidth - actionPlaceable.width,
+                        y = inputPlaceable.height + rowGapPx + (toolRowHeight - actionPlaceable.height) / 2,
+                    )
+                }
+            }
         }
     }
 }
