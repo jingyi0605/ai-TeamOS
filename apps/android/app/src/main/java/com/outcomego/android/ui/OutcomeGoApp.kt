@@ -229,6 +229,7 @@ import com.outcomego.platform.ComputerVncGrant
 import com.outcomego.platform.VncRendererState
 import com.outcomego.platform.NativeAttachmentPreview
 import com.outcomego.platform.AndroidUpdateState
+import com.outcomego.platform.AndroidNetworkProvider
 import java.net.URI
 import java.time.Instant
 import java.time.LocalDate
@@ -303,6 +304,7 @@ fun OutcomeGoApp(
     onInstallAndroidUpdate: () -> Unit = {},
 ) {
     val state by appViewModel.state.collectAsStateWithLifecycle()
+    val networkSharing by AndroidNetworkProvider.snapshot.collectAsStateWithLifecycle()
     val voiceState by appViewModel.voiceState.collectAsStateWithLifecycle()
     val navController = rememberNavController()
     val context = LocalContext.current
@@ -690,6 +692,11 @@ fun OutcomeGoApp(
                 settings = state.features.settings,
                 accountName = state.session?.accountName.orEmpty(),
                 server = state.session?.server.orEmpty(),
+                networkSharing = networkSharing,
+                onToggleNetworkSharing = { enabled ->
+                    if (enabled) AndroidNetworkProvider.start(context, allowSharing = true)
+                    else AndroidNetworkProvider.stop(context)
+                },
                 androidUpdateState = androidUpdateState,
                 onCheckForAndroidUpdate = onCheckForAndroidUpdate,
                 onDownloadAndroidUpdate = onDownloadAndroidUpdate,

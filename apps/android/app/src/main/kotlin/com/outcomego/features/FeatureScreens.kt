@@ -114,6 +114,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import com.outcomego.platform.AndroidUpdateState
+import com.outcomego.mobile.network.ProviderSnapshot
+import com.outcomego.mobile.network.ProviderState
 
 @Composable
 internal fun featureTopBarColors() = TopAppBarDefaults.topAppBarColors(
@@ -948,6 +950,8 @@ fun SettingsScreen(
     settings: AppSettings,
     accountName: String,
     server: String,
+    networkSharing: ProviderSnapshot,
+    onToggleNetworkSharing: (Boolean) -> Unit,
     androidUpdateState: AndroidUpdateState,
     onCheckForAndroidUpdate: () -> Unit,
     onDownloadAndroidUpdate: () -> Unit,
@@ -1127,6 +1131,22 @@ fun SettingsScreen(
             item { SettingsSectionTitle(text("Connections", "连接")) }
             item {
                 SettingsGroup {
+                    val sharing = networkSharing.state != ProviderState.STOPPED
+                    val status = when (networkSharing.state) {
+                        ProviderState.READY -> text("Sharing is active", "共享已开启")
+                        ProviderState.CONNECTING, ProviderState.ENROLLING, ProviderState.RECONNECTING -> text("Connecting…", "正在连接…")
+                        ProviderState.UNAVAILABLE -> text("Temporarily unavailable", "暂时不可用")
+                        ProviderState.REVOKED -> text("Authorization revoked", "授权已撤销")
+                        ProviderState.FAILED -> text("Needs attention", "需要处理")
+                        else -> text("Allow this device to provide public network access", "允许此设备提供公共网络出口")
+                    }
+                    SettingsToggleRow(
+                        text("Network sharing", "网络共享"),
+                        status,
+                        sharing,
+                        onToggleNetworkSharing,
+                    )
+                    SettingsDivider()
                     SettingsActionRow(text("Message outbox", "消息发件箱"), text("Retry messages that could not be delivered", "重试无法投递的消息"), onOutbox)
                     SettingsDivider()
                     SettingsActionRow(text("Account and memory", "账户与记忆"), text("Review account data and saved memories", "查看账户数据和已保存的记忆"), onAccount)

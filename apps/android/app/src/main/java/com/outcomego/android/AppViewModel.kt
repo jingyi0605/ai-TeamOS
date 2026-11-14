@@ -55,6 +55,7 @@ import com.outcomego.platform.AndroidVoiceCapture
 import com.outcomego.platform.AndroidLiveVoiceSnapshot
 import com.outcomego.platform.AndroidLiveVoiceState
 import com.outcomego.platform.AndroidLiveVoiceForeground
+import com.outcomego.platform.AndroidNetworkProvider
 import com.outcomego.platform.ComputerVncGrant
 import com.outcomego.platform.VoiceRecordingController
 import com.outcomego.platform.VoiceRecordingState
@@ -1255,6 +1256,7 @@ class AppViewModel @JvmOverloads constructor(
 
     fun signOut() {
         AndroidLiveVoiceForeground.stop(getApplication())
+        AndroidNetworkProvider.stop(getApplication())
         mutableState.value.session?.let {
             drafts.clearAccount(accountScope(it))
             outboxStore.clear(accountScope(it))

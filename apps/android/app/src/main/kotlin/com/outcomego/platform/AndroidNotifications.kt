@@ -92,6 +92,7 @@ class NotificationChannels(context: Context) {
         const val AGENT = "agent"
         const val REACTION = "reaction"
         const val VOICE = "realtime-voice"
+        const val NETWORK = "network-sharing"
     }
     private val manager = context.getSystemService(NotificationManager::class.java)
 
@@ -100,6 +101,7 @@ class NotificationChannels(context: Context) {
             NotificationChannel(AGENT, "Agent messages", NotificationManager.IMPORTANCE_HIGH),
             NotificationChannel(REACTION, "Reactions", NotificationManager.IMPORTANCE_DEFAULT),
             NotificationChannel(VOICE, "Realtime voice", NotificationManager.IMPORTANCE_LOW),
+            NotificationChannel(NETWORK, "Network sharing", NotificationManager.IMPORTANCE_LOW),
         ))
     }
 }
