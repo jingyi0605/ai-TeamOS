@@ -96,7 +96,7 @@ test("malformed DNS never opens a transport, and failed admission never falls ba
   const exchange = createDnsExchange({
     open: async (host, port) => {
       calls++;
-      expect(host).toBe("1.1.1.1");
+      expect(host).toBe("doh.pub");
       expect(port).toBe(443);
       throw new Error("selected route unavailable");
     },
@@ -202,9 +202,9 @@ test("Node DNS reuses bounded TLS, fences epochs, cancels queued/late dials and 
         "-days",
         "1",
         "-subj",
-        "/CN=cloudflare-dns.com",
+        "/CN=doh.pub",
         "-addext",
-        "subjectAltName=DNS:cloudflare-dns.com",
+        "subjectAltName=DNS:doh.pub",
       ],
       { stdout: "ignore", stderr: "ignore" }
     );

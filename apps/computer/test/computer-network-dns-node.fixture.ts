@@ -17,7 +17,7 @@ const server = createServer(
   (req, res) => {
     requests++;
     assert.equal(req.url, "/dns-query");
-    assert.equal(req.headers.host, "cloudflare-dns.com");
+    assert.equal(req.headers.host, "doh.pub");
     const chunks: Buffer[] = [];
     req.on("data", (chunk) => chunks.push(chunk));
     req.on("end", () => {
@@ -47,13 +47,13 @@ const server = createServer(
   }
 );
 server.on("secureConnection", (socket) =>
-  assert.equal((socket as any).servername, "cloudflare-dns.com")
+  assert.equal((socket as any).servername, "doh.pub")
 );
 await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 const port = (server.address() as import("node:net").AddressInfo).port;
 const client = {
   open: async (host: string, destinationPort: number, signal?: AbortSignal) => {
-    assert.equal(host, "1.1.1.1");
+    assert.equal(host, "doh.pub");
     assert.equal(destinationPort, 443);
     calls++;
     pending++;

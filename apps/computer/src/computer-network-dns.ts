@@ -74,6 +74,7 @@ export function createDnsExchange(
     timeoutMs?: number;
     ipv6?: () => boolean;
     resolver?: () => "docker" | "doh";
+    dohHost?: string;
     dockerResolver?: string;
     dockerResolverPort?: number;
   } = {}
@@ -101,6 +102,7 @@ export function createDnsExchange(
   if (!Number.isFinite(timeoutMs) || timeoutMs < 1 || timeoutMs > 5000)
     throw new Error("Invalid DNS deadline");
   const resolver = options.resolver ?? (() => "doh");
+  const dohHost = options.dohHost ?? "doh.pub";
   const dockerResolver = options.dockerResolver ?? "127.0.0.11";
   const dockerResolverPort = options.dockerResolverPort ?? 53;
 
@@ -151,7 +153,7 @@ export function createDnsExchange(
         raw?.destroy();
         throw new Error("DNS connection unavailable");
       }
-      const socket = connect({ socket: raw, servername: "cloudflare-dns.com" });
+      const socket = connect({ socket: raw, servername: dohHost });
       slot.socket = socket;
       return socket;
     };
@@ -222,7 +224,7 @@ export function createDnsExchange(
       }
       void (async () => {
         if (!slot.socket || slot.socket.destroyed) {
-          const raw = await client.open("1.1.1.1", 443, job.controller.signal);
+          const raw = await client.open(dohHost, 443, job.controller.signal);
           if (job.done || owner.closed || routeKey() !== owner.key) {
             raw.destroy();
             if (!job.done) dispose(owner);
@@ -237,7 +239,7 @@ export function createDnsExchange(
         }
         const req = request(
           {
-            hostname: "cloudflare-dns.com",
+            hostname: dohHost,
             path: "/dns-query",
             method: "POST",
             agent: slot.agent,

@@ -185,6 +185,7 @@ private object AndroidProviderDns {
     )
 
     private val endpoints = listOf(
+        Endpoint("doh.pub", listOf("120.53.53.53")),
         Endpoint("cloudflare-dns.com", listOf("1.1.1.1", "1.0.0.1")),
         Endpoint("dns.google", listOf("8.8.8.8", "8.8.4.4")),
     )
@@ -204,6 +205,9 @@ private object AndroidProviderDns {
 
     fun resolve(host: String): List<InetAddress> {
         if (isLiteralAddress(host)) return InetAddress.getAllByName(host).toList()
+        endpoints.firstOrNull { it.host == host }?.let { endpoint ->
+            return endpoint.addresses.map(InetAddress::getByName)
+        }
         var lastError: Throwable? = null
         for (endpoint in endpoints) {
             try {
@@ -211,7 +215,9 @@ private object AndroidProviderDns {
                     runCatching { query(endpoint.host, host, type) }.getOrDefault(emptyList())
                 }
                 if (records.isNotEmpty()) {
-                    return records.map(InetAddress::getByName)
+                    return records
+                        .map(InetAddress::getByName)
+                        .sortedBy { address -> if (address is java.net.Inet4Address) 0 else 1 }
                 }
             } catch (error: Throwable) {
                 lastError = error
