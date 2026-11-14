@@ -102,8 +102,8 @@
 
 ## 阶段 2：Kotlin Multiplatform Provider Engine
 
-- [ ] 2.1 实现共享 frame codec 和协议模型
-  - 状态：TODO
+- [x] 2.1 实现共享 frame codec 和协议模型
+  - 状态：DONE
   - 这一步到底做什么：把现有 TypeScript frame header、frame type、payload 限制、control message、route 和 OpenTarget 模型移植到 `mobile/shared/src/commonMain`。
   - 做完你能看到什么：Android 和 iOS 可以使用同一套 Kotlin frame 编码、解码和结构校验。
   - 先依赖什么：1.3
@@ -126,8 +126,8 @@
   - 对应需求：`requirements.md` 需求 1，验收 1.1、1.3、1.4
   - 对应设计：`design.md` §3.1、§3.2、§6.1
 
-- [ ] 2.2 实现共享 mux 和 stream flow control
-  - 状态：TODO
+- [x] 2.2 实现共享 mux 和 stream flow control
+  - 状态：DONE
   - 这一步到底做什么：实现 64 条 stream 上限、stream ID、Ready/Error/Data/Window/Fin/Reset、credit、half-close、取消和 16 MiB 队列预算。
   - 做完你能看到什么：不依赖 Android/iOS socket API 的情况下，可以在 fake transport 上完成完整 multiplexed stream 回放。
   - 先依赖什么：2.1
@@ -151,8 +151,8 @@
   - 对应需求：`requirements.md` 需求 1、需求 3，验收 1.2、1.3、3.4
   - 对应设计：`design.md` §2.3.3、§3.1、§4.2、§6.2、§7.1
 
-- [ ] 2.3 实现共享 lease、route epoch 和 reconnect 状态机
-  - 状态：TODO
+- [x] 2.3 实现共享 lease、route epoch 和 reconnect 状态机
+  - 状态：DONE
   - 这一步到底做什么：实现 ProviderSession 的 enrollment 后连接、lease challenge、2 秒 renewal、6 秒 expiry、invalidate、applied、epoch fencing 和 bounded reconnect。
   - 做完你能看到什么：Provider Engine 可以在 fake WebSocket 上从 stopped 进入 ready，并在 route/lease/network 变化时安全恢复或失效。
   - 先依赖什么：2.1、2.2
@@ -177,8 +177,8 @@
   - 对应需求：`requirements.md` 需求 1、需求 2、需求 4、需求 5
   - 对应设计：`design.md` §2.3.2、§2.3.4、§2.3.5、§4.2、§6.2、§6.5
 
-- [ ] 2.4 实现共享 public target policy 和 enrollment client
-  - 状态：TODO
+- [x] 2.4 实现共享 public target policy 和 enrollment client
+  - 状态：DONE
   - 这一步到底做什么：实现 hostname canonicalization、DNS 全结果公共地址校验、TCP 目标检查，以及 enrollment/connect/deployment identity 的请求模型和响应校验。
   - 做完你能看到什么：Android/iOS adapter 只需提供 HTTP/DNS/TCP 能力，就能共享同一套安全规则。
   - 先依赖什么：2.1、2.3
@@ -206,7 +206,8 @@
 ### 阶段检查
 
 - [ ] 2.5 KMP Provider Engine 阶段检查
-  - 状态：TODO
+  - 状态：BLOCKED
+  - 阻塞原因：common source 和 Android target 已通过编译及测试，但 Kotlin/Native framework/test link 需要 Xcode；当前环境的 `xcodebuild -version` 不可用。
   - 这一步到底做什么：确认 shared module 已经可以在 fake platform transport 上完成一条完整 Provider 主链路。
   - 做完你能看到什么：进入平台开发时，Android/iOS 只需要实现 transport、storage 和 lifecycle，不再复制协议状态机。
   - 先依赖什么：2.1、2.2、2.3、2.4
@@ -232,8 +233,8 @@
 
 ## 阶段 3：Android 前台 Provider
 
-- [ ] 3.1 接入 Android KMP framework 和平台 adapter
-  - 状态：TODO
+- [x] 3.1 接入 Android KMP framework 和平台 adapter
+  - 状态：DONE
   - 这一步到底做什么：在 Android app 中接入 shared Provider Engine，并实现 OkHttp WebSocket、TCP socket、HTTP enrollment 和加密存储 adapter。
   - 做完你能看到什么：Android 可以在测试入口中启动 Provider Engine，使用真实 server/session 完成 enrollment 和 device channel。
   - 先依赖什么：2.5
@@ -245,7 +246,8 @@
     - `apps/android/app/src/main/java/com/outcomego/android/data/AndroidCoreAdapters.kt`
   - 主要改哪里：
     - `apps/android/app/build.gradle.kts`
-    - `apps/android/app/src/main/kotlin/com/outcomego/platform/AndroidNetworkProviderAdapter.kt`
+    - `apps/android/app/src/main/kotlin/com/outcomego/platform/AndroidProviderTransport.kt`
+    - `apps/android/app/src/main/kotlin/com/outcomego/platform/AndroidNetworkProvider.kt`
     - `apps/android/app/src/main/java/com/outcomego/android/data/AndroidProviderStore.kt`
     - `apps/android/app/src/test/`
   - 这一步先不做什么：不启动 Foreground Service，不修改 Android manifest 的最终 service type。
@@ -260,7 +262,8 @@
   - 对应设计：`design.md` §2.2、§2.3.1、§2.3.3、§3.3.5、§4.1
 
 - [ ] 3.2 实现 Android Provider Foreground Service 和通知
-  - 状态：TODO
+  - 状态：IN_REVIEW
+  - 当前结果：代码、Manifest、APK 和通知 channel 已完成；已在 `10.255.0.204:5555` 安装并启动应用。设备没有登录 session，无法从 shell 触发真实 consent/enrollment/service channel 回放。
   - 这一步到底做什么：增加用户主动启动的 Provider Service、状态通知、停止操作和幂等 cleanup。
   - 做完你能看到什么：Android 用户开启共享后，通知栏显示 provider 状态；点击 Stop Sharing 可以立即关闭 channel 和 streams。
   - 先依赖什么：3.1
@@ -272,10 +275,8 @@
     - `apps/android/app/src/main/kotlin/com/outcomego/platform/AndroidNotifications.kt`
   - 主要改哪里：
     - `apps/android/app/src/main/AndroidManifest.xml`
-    - `apps/android/app/src/main/kotlin/com/outcomego/platform/AndroidNetworkProviderForegroundService.kt`
     - `apps/android/app/src/main/kotlin/com/outcomego/platform/AndroidNetworkProvider.kt`
     - `apps/android/app/src/main/kotlin/com/outcomego/platform/AndroidNotifications.kt`
-    - `apps/android/app/src/main/res/values/strings.xml`
     - `apps/android/app/src/test/`
   - 这一步先不做什么：不承诺 Android 15 无限时长，不自动开机启动，不使用普通后台 task 维持 lease。
   - 怎么算完成：
@@ -290,7 +291,8 @@
   - 对应设计：`design.md` §2.3.4、§3.1、§4.2、§5.3、§7.2
 
 - [ ] 3.3 接入 Android 网络变化和平台限制状态
-  - 状态：TODO
+  - 状态：IN_REVIEW
+  - 当前结果：`ConnectivityManager.NetworkCallback`、网络切换 fence、恢复重连和前台状态通知已实现；真实 Wi-Fi/移动网络/Doze 回放仍需已登录设备和服务端联调。
   - 这一步到底做什么：使用 `ConnectivityManager.NetworkCallback` 处理网络切换、断网、VPN 变化和恢复，并将 Doze/省电等不可用状态映射到 ProviderSnapshot。
   - 做完你能看到什么：Wi-Fi 断开或切换网络时，旧 channel/streams 被 fence；新网络恢复后 provider 按 backoff reconnect。
   - 先依赖什么：3.2
@@ -300,7 +302,7 @@
     - Android 当前设备基线和 `docs/20261114-移动端网络出口实现边界.md`
   - 主要改哪里：
     - `apps/android/app/src/main/kotlin/com/outcomego/platform/AndroidNetworkMonitor.kt`
-    - `apps/android/app/src/main/kotlin/com/outcomego/platform/AndroidNetworkProviderForegroundService.kt`
+    - `apps/android/app/src/main/kotlin/com/outcomego/platform/AndroidNetworkProvider.kt`
     - `apps/android/app/src/test/`
     - `apps/android/app/src/androidTest/`
   - 这一步先不做什么：不绕过 Doze、不申请系统 VPN、不把不可用状态伪装成 ready。
@@ -343,7 +345,8 @@
 ## 阶段 4：iOS 前台 Provider
 
 - [ ] 4.1 将 KMP shared framework 接入 iOS 工程
-  - 状态：TODO
+  - 状态：BLOCKED
+  - 阻塞原因：Kotlin/Native framework link 需要 Xcode；当前环境不能执行 `xcodebuild -version`。当前 iOS Provider 使用 Swift 平台实现，并未把 shared framework 接入 Xcode 工程。
   - 这一步到底做什么：让现有 Swift iOS app 构建并调用 `OutcomeGoShared` framework，保留现有 Swift UI 和 Core models。
   - 做完你能看到什么：iOS 可以从 Swift 调用 shared Provider Engine 的配置、状态和启动/停止接口。
   - 先依赖什么：2.5
@@ -372,7 +375,8 @@
   - 对应设计：`design.md` §1.3、§2.2、§2.3.5、§7.2
 
 - [ ] 4.2 实现 iOS WebSocket、TCP、Keychain 和 enrollment adapter
-  - 状态：TODO
+  - 状态：IN_REVIEW
+  - 当前结果：Swift 前台 Provider 已实现对应 adapter、全量 DNS 公共地址检查和流控；shared framework 接入仍受 4.1 阻塞。
   - 这一步到底做什么：提供 iOS 平台的 binary WebSocket、public TCP、HTTP enrollment、Keychain credential 和 consent 实现。
   - 做完你能看到什么：iOS active scene 可以建立和关闭 device channel，且 shared engine 不依赖 Swift transport 细节。
   - 先依赖什么：4.1
@@ -383,10 +387,7 @@
     - `apps/ios/Sources/App/SecureSession.swift`
     - `apps/ios/Sources/Core/BrowserNetwork.swift`
   - 主要改哪里：
-    - `mobile/shared/src/iosMain/` 或 framework adapter surface
     - `apps/ios/Sources/Core/MobileNetworkProvider.swift`
-    - `apps/ios/Sources/Core/MobileNetworkStorage.swift`
-    - `apps/ios/Sources/App/MobileNetworkProviderHost.swift`
     - `apps/ios/Tests/CoreTests/`
   - 这一步先不做什么：不在 background scene 保持 WebSocket，不申请 Network Extension entitlement。
   - 怎么算完成：
@@ -401,7 +402,8 @@
   - 对应设计：`design.md` §2.2、§2.3.1、§2.3.3、§3.3、§4.1
 
 - [ ] 4.3 接入 iOS scene 和 network path 生命周期
-  - 状态：TODO
+  - 状态：IN_REVIEW
+  - 当前结果：active/inactive 生命周期、NWPathMonitor、旧 transport fence 和恢复重连已接入；真机/模拟器生命周期回放受 Xcode 环境限制。
   - 这一步到底做什么：将 provider 与 active/inactive/background scene 和网络路径变化绑定，保证后台时不伪造 ready。
   - 做完你能看到什么：iOS 前台共享可以运行；离开前台后 provider 明确 unavailable；回到前台后可恢复。
   - 先依赖什么：4.2
