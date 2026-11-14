@@ -31,21 +31,25 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.animateContentSize
@@ -84,6 +88,7 @@ import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Group
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Notifications
@@ -146,6 +151,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.layoutId
 import androidx.compose.ui.platform.LocalFocusManager
@@ -181,7 +187,9 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.window.Dialog
@@ -668,6 +676,7 @@ fun OutcomeGoApp(
                 conversations = state.conversations,
                 onLoadOlder = appViewModel::loadOlderHistory,
                 onUpload = appViewModel::uploadChatAttachment,
+                onRemoveAttachment = appViewModel::removePendingAttachment,
                 onDownload = appViewModel::downloadChatAttachment,
                 onSaveAttachment = appViewModel::saveChatAttachment,
                 onShareAttachment = appViewModel::shareChatAttachment,
@@ -3182,6 +3191,7 @@ private fun ChatScreen(
     conversations: List<Conversation>,
     onLoadOlder: () -> Unit,
     onUpload: (String) -> Unit,
+    onRemoveAttachment: (String) -> Unit,
     onDownload: (String, Attachment) -> Unit,
     onSaveAttachment: (String, Attachment) -> Unit,
     onShareAttachment: (Attachment) -> Unit,
@@ -3401,9 +3411,10 @@ private fun ChatScreen(
                     ReplyPreviewBar(target, onCancelReply)
                 }
                 if (pendingAttachments.isNotEmpty()) {
-                    Box(Modifier.padding(bottom = 8.dp)) {
-                        ChatAttachmentStrip(pendingAttachments, onPreview = { _, _ -> }, onDownload = { _, _ -> })
-                    }
+                    PendingAttachmentStrip(
+                        attachments = pendingAttachments,
+                        onRemove = onRemoveAttachment,
+                    )
                 }
                 ChatComposer(
                     draft = draft,
@@ -3676,6 +3687,126 @@ internal fun ChatComposer(
                         x = maxWidth - actionPlaceable.width,
                         y = inputPlaceable.height + rowGapPx + (toolRowHeight - actionPlaceable.height) / 2,
                     )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Horizontal strip of compact pending attachments above the composer, each with a top-right red
+ * remove badge so multiple images and files stay compact and individually removable.
+ */
+@Composable
+internal fun PendingAttachmentStrip(
+    attachments: List<Attachment>,
+    onRemove: (String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptic = LocalAppHaptics.current
+    val shape = RoundedCornerShape(14.dp)
+    LazyRow(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp)
+            .testTag("pending-attachments"),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(horizontal = 2.dp),
+    ) {
+        itemsIndexed(attachments, key = { index, item -> "${item.id}-$index" }) { _, attachment ->
+            val removeLabel = localizedText("Remove ${attachment.name}", "移除 ${attachment.name}")
+            Box(Modifier.testTag("pending-attachment-${attachment.id}")) {
+                Box(
+                    Modifier
+                        .padding(top = 6.dp, end = 6.dp)
+                        .then(
+                            if (attachment.isImage) {
+                                Modifier.size(64.dp)
+                            } else {
+                                Modifier.height(64.dp).widthIn(min = 136.dp, max = 196.dp)
+                            },
+                        )
+                        .clip(shape)
+                        .background(MaterialTheme.colorScheme.surface)
+                        .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f), shape),
+                ) {
+                    if (attachment.isImage) {
+                        val bitmap = rememberDecodedBitmap(attachment.localUri, maxSizePx = 256)
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap,
+                                contentDescription = attachment.alt ?: attachment.name,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop,
+                            )
+                        } else {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.Image,
+                                    contentDescription = attachment.name,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(24.dp),
+                                )
+                            }
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            FileGlyph(attachment.name)
+                            Column(Modifier.weight(1f, fill = false)) {
+                                Text(
+                                    text = attachment.name,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = formatAttachmentSize(attachment.sizeBytes),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                    maxLines = 1,
+                                )
+                            }
+                        }
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .size(28.dp)
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = removeLabel
+                        }
+                        .testTag("remove-pending-attachment-${attachment.id}")
+                        .clickable {
+                            haptic.play(HapticEffect.Light)
+                            onRemove(attachment.id)
+                        },
+                    contentAlignment = Alignment.TopEnd,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(Color(0xFFE53935))
+                            .border(1.5.dp, MaterialTheme.colorScheme.background, CircleShape),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(12.dp),
+                        )
+                    }
                 }
             }
         }

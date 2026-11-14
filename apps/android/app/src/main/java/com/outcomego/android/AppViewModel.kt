@@ -1028,6 +1028,14 @@ class AppViewModel @JvmOverloads constructor(
         }
     }
 
+    fun removePendingAttachment(attachmentId: String) {
+        mutableState.update { state ->
+            val index = state.pendingAttachments.indexOfFirst { it.id == attachmentId }
+            if (index < 0) state
+            else state.copy(pendingAttachments = state.pendingAttachments.toMutableList().apply { removeAt(index) })
+        }
+    }
+
     fun downloadChatAttachment(messageId: String, attachment: Attachment) {
         if (!attachment.localUri.isNullOrBlank()) return
         runFeatureOperation {
